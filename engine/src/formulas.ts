@@ -19,14 +19,15 @@ export const CONFIG = {
   // ── CTB 持ち点式ターン順（企画書4.1.1）
   ctb: {
     threshold: 100, // 持ち点がこれを超えたら行動 → 消費
-    gainBase: 12, // 持ち点/tick の基準
-    // 逓減: gain = gainBase × sqrt(有効素早さ)。2倍速 → √2≈1.41倍手数（≠2倍）
-    speedExponent: 0.5,
+    gainBase: 20, // 持ち点/tick の基準
+    // 逓減: gain = gainBase × 素早さ^exp。exp を下げるほど手数差が圧縮される。
+    // 0.35 で「速度13倍 → 手数≈1.9倍」＝速いが万能化しない（M2で 0.5 から調整）
+    speedExponent: 0.35,
   },
 
   // ── 物理（力×武器 − 鎧、±乱数、素早さで回避／企画書4.1）
   physical: {
-    variancePct: 0.125, // ±12.5%（小さな乱数を多く＝良い運）
+    variancePct: 0.18, // ±18%（小さな乱数を多く＝良い運。相性を軟らかく・M2で 0.125 から調整）
     critChance: 0.08,
     critMult: 1.5, // 中倍率（一撃で試合を決めない）
     evadeMaxPct: 0.25, // 回避率の上限（控えめ。運ゲー化を防ぐ）
@@ -41,7 +42,7 @@ export const CONFIG = {
     magDefScaling: 1.0, // 受け手魔力の軽減倍率（魔力 vs 魔力）
     floorPct: 0.15, // 下限 = 基本値の 15%（魔力で軽減されても最低これは通る）
     maxHpPctPerTier: 0.0, // %最大HP成分（仮=0。体力全振り対策で M2 調整時に上げる）
-    variancePct: 0.125,
+    variancePct: 0.18,
   },
 
   // ── 回復 Cure（企画書4.2：ソロで uptime 延長＝バースト対サステインのビルド分化）
@@ -114,14 +115,14 @@ export function derive(stats: Stats): { maxHP: number; maxMP: number } {
 // ────────────────────────────────────────────────────────────
 export const WEAPONS: Record<string, WeaponDef> = {
   sword_iron: { id: 'sword_iron', name: '鉄の剣', kind: 'physical', powMult: 3.0, spdPenalty: 0 },
-  axe_battle: { id: 'axe_battle', name: '戦斧', kind: 'physical', powMult: 4.2, spdPenalty: 3 },
+  axe_battle: { id: 'axe_battle', name: '戦斧', kind: 'physical', powMult: 4.2, spdPenalty: 2 },
   dagger: { id: 'dagger', name: '短剣', kind: 'physical', powMult: 2.2, spdPenalty: -1 },
   staff_oak: { id: 'staff_oak', name: '樫の杖', kind: 'magic', powMult: 1.0, spdPenalty: 0 },
 };
 
 export const ARMORS: Record<string, ArmorDef> = {
   mail_leather: { id: 'mail_leather', name: '革鎧', physDef: 6, spdPenalty: 0 },
-  mail_iron: { id: 'mail_iron', name: '鉄鎧', physDef: 14, spdPenalty: 3 },
+  mail_iron: { id: 'mail_iron', name: '鉄鎧', physDef: 14, spdPenalty: 2 },
   robe: { id: 'robe', name: 'ローブ', physDef: 2, spdPenalty: -1 }, // 魔法型向け（将来: 魔法耐性）
 };
 
