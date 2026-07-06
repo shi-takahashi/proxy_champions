@@ -128,8 +128,15 @@ export type StatusKey = 'sleep';
 export type DamageKind = 'physical' | 'magic';
 
 export type BattleEvent =
-  // 開始・終了
-  | { type: 'battle_start'; t: number; teamA: string[]; teamB: string[]; seed: number }
+  // 開始・終了（fighters = 再生に必要な各戦闘者の初期情報：id/side/最大HP＝HPバーの分母）
+  | {
+    type: 'battle_start';
+    t: number;
+    teamA: string[];
+    teamB: string[];
+    fighters: { id: string; side: SideId; maxHp: number }[];
+    seed: number;
+  }
   | { type: 'battle_end'; t: number; winner: SideId | 'draw'; seed: number }
   // 行動権（持ち点が閾値超）
   | { type: 'gauge_ready'; t: number; actor: string }

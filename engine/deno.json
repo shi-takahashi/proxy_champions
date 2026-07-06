@@ -2,7 +2,8 @@
   "tasks": {
     "test": "deno test src/ tests/",
     "balance": "deno run scripts/balance.ts",
-    "check": "deno check src/**/*.ts"
+    "check": "deno check src/**/*.ts",
+    "sync-edge": "rm -rf ../supabase/functions/_engine && cp -R src ../supabase/functions/_engine"
   },
   "fmt": {
     "useTabs": false,

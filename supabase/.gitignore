@@ -2,3 +2,7 @@
 .branches
 .temp
 .env
+
+# M4: engine の vendor ミラー（正本 = engine/src / `deno task sync-edge` で再生成）
+# edge runtime は functions ディレクトリ外を import できないため実ファイルで同梱する
+functions/_engine/

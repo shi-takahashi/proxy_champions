@@ -285,6 +285,7 @@ export function battle(input: BattleInput): BattleResult {
     t: 0,
     teamA: input.teamA.map((c) => c.id),
     teamB: input.teamB.map((c) => c.id),
+    fighters: combatants.map((c) => ({ id: c.id, side: c.side, maxHp: c.maxHp })),
     seed: input.seed,
   });
 

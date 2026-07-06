@@ -256,6 +256,11 @@ inspector_port = 8083
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 # entrypoint = "./functions/MY_FUNCTION_NAME/index.ts"
 
+# M4: 即時オート1戦（engine の battle() を import）
+[functions.run-battle]
+enabled = true
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327
