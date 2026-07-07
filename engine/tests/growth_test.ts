@@ -104,7 +104,7 @@ Deno.test('spentPoints: 下限より上のステ＋ライン修行値の合計',
 // ── 6. 配分検証: プール内OK・超過NG・下限割れNG・青天井（上限なし）──
 Deno.test('checkAllocation: プール内OK / 超過NG / 下限割れNG / 上限なし', () => {
   const lv = 5;
-  const pool = poolForLevel(lv); // 10 + 4*5 = 30
+  const pool = poolForLevel(lv); // basePool + 4*pointsPerLevel
 
   // ちょうど使い切り（全部 vit に寄せる = 青天井: 上限で弾かれない）
   const allVit: Stats = { vit: GROWTH.statFloor + pool, mag: 1, pow: 1, spd: 1, men: 1 };

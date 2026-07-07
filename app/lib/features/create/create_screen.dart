@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../models/character_build.dart';
 import '../../services/battle_api.dart';
-import '../replay/replay_screen.dart';
 
-/// M4 の入口: 名前 + プリセットビルドを選び「作成して1戦」。
-/// フルなステ振り UI は M5（育成ループ）。ここは縦スライスを通す最小フォーム。
+/// M5.4: 初回のみ。名前 + スターター（level1・配分プール内）を選んでキャラを作成。
+/// 以降は 1ユーザー1キャラ＝ホーム（育成ループ）へ。ステ振りで伸ばしていく。
 class CreateScreen extends StatefulWidget {
   final BattleApi api;
-  const CreateScreen({super.key, required this.api});
+  final VoidCallback onCreated;
+  const CreateScreen({super.key, required this.api, required this.onCreated});
 
   @override
   State<CreateScreen> createState() => _CreateScreenState();
@@ -21,25 +21,36 @@ class _Preset {
   const _Preset(this.label, this.defaultName, this.build);
 }
 
+// スターターは level1・配分プール(basePool)内に収める（ステ振りで伸ばす前提の弱め）。
 const _presets = <_Preset>[
   _Preset(
-    '脳筋戦士',
-    '脳筋戦士',
+    '戦士',
+    '戦士',
     CharacterBuild(
-      level: 12,
-      stats: Stats(vit: 14, mag: 2, pow: 16, spd: 8, men: 5),
+      level: 1,
+      stats: Stats(vit: 9, mag: 1, pow: 14, spd: 7, men: 4),
       spellLines: SpellLines(),
-      equipment: EquipmentLoadout(weapon: 'axe_battle', armor: 'mail_iron', shield: 'shield_iron'),
+      equipment: EquipmentLoadout(weapon: 'sword_iron', armor: 'mail_leather'),
     ),
   ),
   _Preset(
     '魔法使い',
     '魔法使い',
     CharacterBuild(
-      level: 12,
-      stats: Stats(vit: 8, mag: 18, pow: 3, spd: 9, men: 7),
-      spellLines: SpellLines(fire: 30, cure: 10),
+      level: 1,
+      stats: Stats(vit: 6, mag: 12, pow: 2, spd: 6, men: 3),
+      spellLines: SpellLines(fire: 10),
       equipment: EquipmentLoadout(weapon: 'staff_oak', armor: 'robe'),
+    ),
+  ),
+  _Preset(
+    '僧侶',
+    '僧侶',
+    CharacterBuild(
+      level: 1,
+      stats: Stats(vit: 9, mag: 9, pow: 6, spd: 6, men: 4),
+      spellLines: SpellLines(cure: 10),
+      equipment: EquipmentLoadout(weapon: 'sword_iron', armor: 'mail_leather'),
     ),
   ),
 ];
@@ -51,7 +62,7 @@ class _CreateScreenState extends State<CreateScreen> {
   bool _busy = false;
   String? _error;
 
-  Future<void> _fight() async {
+  Future<void> _create() async {
     setState(() {
       _busy = true;
       _error = null;
@@ -59,23 +70,9 @@ class _CreateScreenState extends State<CreateScreen> {
     try {
       final preset = _presets[_selected];
       final name = _name.text.trim().isEmpty ? preset.defaultName : _name.text.trim();
-      final api = widget.api;
-
-      final characterId = await api.createCharacter(name, preset.build); // DB 保存
-      final matchId = await api.runBattle(characterId); // Edge Function で battle()
-      final log = await api.fetchEventLog(matchId); // eventLog 取得
-
-      // side A = 自キャラ / side B = スパーリングダミー（B の id を fighters から解決）
-      final start = log.firstWhere((e) => e.type == 'battle_start');
-      final nameOf = <String, String>{};
-      for (final f in start.fighters) {
-        nameOf[f.id] = f.side == 'A' ? name : 'スパーリングダミー';
-      }
-
+      await widget.api.createCharacter(name, preset.build);
       if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ReplayScreen(eventLog: log, nameOf: nameOf)),
-      );
+      widget.onCreated();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -92,7 +89,7 @@ class _CreateScreenState extends State<CreateScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('PROXY CHAMPIONS — 練習試合')),
+      appBar: AppBar(title: const Text('PROXY CHAMPIONS — 分身をつくる')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 460),
@@ -102,7 +99,7 @@ class _CreateScreenState extends State<CreateScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('キャラを作って、スパーリング相手と即時オート1戦。',
+                const Text('あなたの分身（1体）をつくる。派遣ダンジョンで育てよう。',
                     style: TextStyle(fontSize: 14)),
                 const SizedBox(height: 20),
                 TextField(
@@ -113,7 +110,7 @@ class _CreateScreenState extends State<CreateScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text('ビルド', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text('スターター', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 RadioGroup<int>(
                   groupValue: _selected,
@@ -137,13 +134,13 @@ class _CreateScreenState extends State<CreateScreen> {
                 ),
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _busy ? null : _fight,
+                  onPressed: _busy ? null : _create,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     child: _busy
                         ? const SizedBox(
                             height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('作成して1戦 ▶'),
+                        : const Text('この分身ではじめる ▶'),
                   ),
                 ),
                 if (_error != null) ...[

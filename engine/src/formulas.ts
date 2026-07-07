@@ -110,7 +110,7 @@ export const GROWTH = {
   baseXp: 100, // Lv1→2 に要る XP
   curveExp: 1.5, // XP曲線の指数（>1 で上位ほど1レベルが重い＝伸び鈍化）
   statFloor: 1, // 各基本ステの下限（1プールの原資はここから上に積む）
-  basePool: 10, // Lv1 の配分ポイント
+  basePool: 40, // Lv1 の配分ポイント（新規キャラが novice を戦える最低限＝starter 生存性。仮・M5調整対象）
   pointsPerLevel: 5, // レベルアップごとに増える配分ポイント
   respecBase: 50, // リスペック基本費用（ゴールド・企画書3.5 ゴールドシンク）
   respecPerLevel: 20, // レベル比例のシンク
