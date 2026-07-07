@@ -80,6 +80,9 @@ function initState(c: Combatant): CState {
   const spdPenalty = (w?.spdPenalty ?? 0) + (a?.spdPenalty ?? 0);
   const mhp = maxHP(c.build.stats.vit);
   const mmp = maxMP(c.build.stats.mag);
+  // M5: 開始 HP/MP（未指定＝満タン）。派遣の体力ループで前戦の残量を持ち越す（企画書3.3）。
+  const startHp = clamp(c.startHp ?? mhp, 0, mhp);
+  const startMp = clamp(c.startMp ?? mmp, 0, mmp);
   return {
     id: c.id,
     side: c.side,
@@ -90,10 +93,10 @@ function initState(c: Combatant): CState {
     maxHp: mhp,
     maxMp: mmp,
     baseSpd: Math.max(1, c.build.stats.spd - spdPenalty),
-    hp: mhp,
-    mp: mmp,
+    hp: startHp,
+    mp: startMp,
     gauge: 0,
-    alive: true,
+    alive: startHp > 0,
     actionsTaken: 0,
     sleepRemaining: 0,
     sleepApplyCount: 0,
@@ -330,7 +333,16 @@ export function battle(input: BattleInput): BattleResult {
   const winner: SideId | 'draw' = aAlive && !bAlive ? 'A' : bAlive && !aAlive ? 'B' : 'draw';
   log.push({ type: 'battle_end', t: tick, winner, seed: input.seed });
 
-  return { winner, seed: input.seed, turns, eventLog: log };
+  // M5: 終了時の各戦闘者の HP/MP（派遣が次戦へ持ち越すために読む・企画書3.3）
+  const endState = combatants.map((c) => ({
+    id: c.id,
+    side: c.side,
+    hp: Math.max(0, c.hp),
+    mp: c.mp,
+    alive: c.alive,
+  }));
+
+  return { winner, seed: input.seed, turns, eventLog: log, endState };
 }
 
 /** 1v1 の便利ラッパー（ハーネス/テスト用） */

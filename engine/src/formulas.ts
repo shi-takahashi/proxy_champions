@@ -80,6 +80,22 @@ export const CONFIG = {
 
   // ── 膠着防止（PvP・企画書4.2）
   limits: { maxTurns: 200 },
+
+  // ── 派遣ダンジョン（M5・企画書3.3.1）※すべて仮値。報酬レート/敵強度は M5 バランスで実測調整
+  dive: {
+    minutesPerBattle: 3, // 1戦の所要（分）＝「指定時間まで連戦」の刻み
+    // 報酬（勝利ごと・difficulty 倍。時間投資に比例＝企画書3.3「日次上限なし」）
+    xpPerWinBase: 10,
+    goldPerWinBase: 5,
+    dropChancePerWin: 0.15, // 勝利ごとのドロップ確率（ピティ=天井は M5.3 の永続カウンタ側）
+    // 敵生成（difficulty で線形スケール・MVP は物理グラント1型。敵の多様化は live-ops）
+    enemyVitBase: 8,
+    enemyVitPerDiff: 3,
+    enemyPowBase: 6,
+    enemyPowPerDiff: 2,
+    enemySpdBase: 6,
+    enemySpdPerDiff: 1,
+  },
 } as const;
 
 // ────────────────────────────────────────────────────────────

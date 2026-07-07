@@ -93,6 +93,13 @@ export interface Combatant {
   id: string;
   side: SideId;
   build: CharacterBuild;
+  /**
+   * M5: 開始 HP（未指定＝満タン maxHP）。派遣ダンジョンの体力ループで
+   * 前の戦闘で削れた HP を次戦へ持ち越すのに使う（企画書3.3・"体力0で強制帰還"）。
+   */
+  startHp?: number;
+  /** M5: 開始 MP（未指定＝満タン maxMP）。cure が MP を食い切るまで潜れる（企画書4.2 uptime）。 */
+  startMp?: number;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -110,10 +117,71 @@ export interface BattleResult {
   seed: number;
   turns: number;
   eventLog: BattleEvent[];
+  /**
+   * M5: 終了時の各戦闘者の状態。派遣ダンジョンが HP/MP を次戦へ持ち越すために読む
+   * （企画書3.3 体力ループ）。再生には不要（eventLog が正本）だが dive() の連結に必要。
+   */
+  endState: CombatantEndState[];
+}
+
+export interface CombatantEndState {
+  id: string;
+  side: SideId;
+  hp: number; // 0..maxHP（0 = 撃破）
+  mp: number; // 0..maxMP
+  alive: boolean;
 }
 
 /** 決定論戦闘エンジンの署名（M1 で実装） */
 export type BattleFn = (input: BattleInput) => BattleResult;
+
+// ────────────────────────────────────────────────────────────
+// M5: 派遣ダンジョン（dive）契約（企画書3.3 / 実装プラン M5）
+//   dive(hero, dungeon, seed, minutes) → DiveResult
+//   battle() を敵連戦で再利用。HP/MP を試合間で持ち越す（体力ループ）。
+//   ・体力0 で強制帰還（endReason='ko'）／指定時間まで戦って時間切れ（'time'）
+//   ・勝利ごとに XP/ゴールド、確率でドロップ（サーバー計算・非同期・企画書3.3.1）
+// ────────────────────────────────────────────────────────────
+export interface DropEntry {
+  equipmentId: string; // WeaponDef/ArmorDef/ShieldDef の id
+  weight: number; // 重み付き抽選（相対）
+}
+
+/** dive() の入力ダンジョン（DB dungeons 行の engine 側ビュー。ステ効果は formulas が正本） */
+export interface DungeonDef {
+  slug: string;
+  difficulty: number; // 敵の強さ・報酬レートのスケール
+  dropTable: DropEntry[];
+}
+
+export type DiveEndReason = 'time' | 'ko';
+
+/** 1戦ぶんの結果サマリ（帰還後の明細表示・報酬内訳／再生は matches 側） */
+export interface DiveBattleSummary {
+  index: number;
+  winner: SideId | 'draw';
+  won: boolean; // hero(side A) が勝ったか
+  enemyId: string;
+  xp: number;
+  gold: number;
+  drop: string | null; // ドロップした装備 id（無し=null）
+  hpAfter: number; // この戦闘後の hero HP（次戦へ持ち越す値）
+  mpAfter: number;
+  minutesElapsed: number; // 派遣開始からの累計（分）
+}
+
+export interface DiveResult {
+  dungeonSlug: string;
+  seed: number;
+  battles: DiveBattleSummary[];
+  totalXp: number;
+  totalGold: number;
+  drops: string[];
+  hpRemaining: number; // 帰還時の HP（自然回復の起点）
+  mpRemaining: number;
+  minutesElapsed: number;
+  endReason: DiveEndReason;
+}
 
 // ────────────────────────────────────────────────────────────
 // 状態異常（MVPは sleep のみ・毒/麻痺は将来拡張／企画書3.5.2）
