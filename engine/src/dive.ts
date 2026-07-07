@@ -62,26 +62,41 @@ function rollDrop(dungeon: DungeonDef, rng: Rng): string | null {
   return table[table.length - 1].equipmentId;
 }
 
+export interface DiveOptions {
+  /** 派遣開始時の HP（未指定＝満タン）。体力が残ったまま再派遣する時に渡す（企画書3.3「体力1以上なら即再派遣」）。 */
+  startHp?: number;
+  /** 派遣開始時の MP（未指定＝満タン）。MVP の永続層は毎回満タン（体力ループが核）。 */
+  startMp?: number;
+}
+
+/** 帰還後の自然回復（純粋・企画書3.3）: 現在HP + 経過分×%最大HP を maxHP で頭打ち。 */
+export function staminaRecover(currentHp: number, maxHp: number, elapsedMinutes: number): number {
+  const gained = Math.floor(Math.max(0, elapsedMinutes) * CONFIG.dive.regenPctPerMinute * maxHp);
+  return Math.min(maxHp, Math.max(0, currentHp) + gained);
+}
+
 /**
  * 派遣ダンジョン1回ぶんの決定論シミュレーション。
- * @param hero    派遣するキャラ（満タン HP/MP から開始）
+ * @param hero    派遣するキャラ
  * @param dungeon ダンジョン定義（difficulty・ドロップ表）
  * @param seed    この派遣のシード（記録すれば再現・検証）
  * @param minutes 指定潜航時間（分）。この範囲で連戦する
+ * @param opts    開始 HP/MP（未指定＝満タン。部分体力からの再派遣に使う）
  */
 export function dive(
   hero: CharacterBuild,
   dungeon: DungeonDef,
   seed: number,
   minutes: number,
+  opts: DiveOptions = {},
 ): DiveResult {
   const rng = new Rng(seed);
   const mhp = maxHP(hero.stats.vit);
   const mmp = maxMP(hero.stats.mag);
   const perBattle = CONFIG.dive.minutesPerBattle;
 
-  let hp = mhp;
-  let mp = mmp;
+  let hp = Math.min(mhp, Math.max(0, opts.startHp ?? mhp));
+  let mp = Math.min(mmp, Math.max(0, opts.startMp ?? mmp));
   let elapsed = 0;
   let index = 0;
   let totalXp = 0;

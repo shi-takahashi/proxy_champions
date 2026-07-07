@@ -7,9 +7,9 @@
  * 依存ゼロ（インライン assert）。
  */
 
-import { dive } from '../src/dive.ts';
+import { dive, staminaRecover } from '../src/dive.ts';
 import { battle } from '../src/battle.ts';
-import { maxHP } from '../src/formulas.ts';
+import { CONFIG, maxHP } from '../src/formulas.ts';
 import type { CharacterBuild, DungeonDef, SpellLines } from '../src/schema.ts';
 
 function assert(cond: boolean, msg: string): void {
@@ -137,6 +137,29 @@ Deno.test('終了条件: ko⇔HP0・time⇔HP>0、時間は指定内、刻みは
   for (let i = 0; i < t.battles.length; i++) {
     assertEquals(t.battles[i].minutesElapsed, (i + 1) * 3, '刻みは minutesPerBattle 一定');
   }
+});
+
+// ── 6b. 部分体力からの再派遣（startHp）＝永続層の体力ループ ─────
+Deno.test('dive は startHp を尊重（部分体力から再派遣）', () => {
+  const mhp = maxHP(fighter.stats.vit);
+  const full = dive(fighter, dungeon, 500, 300);
+  const wounded = dive(fighter, dungeon, 500, 300, { startHp: Math.floor(mhp / 4) });
+  // 少ない体力から始めれば早く力尽きる（＝持ち越しが効く）
+  assert(
+    wounded.battles.length <= full.battles.length,
+    `低HPスタートは戦数が増えない（wounded ${wounded.battles.length} ≤ full ${full.battles.length}）`,
+  );
+  assert(wounded.endReason === 'ko', '1/4 体力なら強制帰還しやすい');
+});
+
+// ── 6c. 自然回復（純粋・時間で回復・maxHP 頭打ち）───────────────
+Deno.test('staminaRecover: 時間で回復し maxHP で頭打ち', () => {
+  const maxHp = 200;
+  assertEquals(staminaRecover(0, maxHp, 0), 0, '経過0分は回復なし');
+  const perMin = CONFIG.dive.regenPctPerMinute * maxHp; // 2/分
+  assertEquals(staminaRecover(0, maxHp, 10), Math.floor(10 * perMin), '10分ぶん回復');
+  assertEquals(staminaRecover(190, maxHp, 100), maxHp, 'maxHP を超えない（頭打ち）');
+  assert(staminaRecover(50, maxHp, 30) > 50, '回復は増加方向');
 });
 
 // ── 6. cure が uptime を延ばす（バースト対サステイン・企画書4.2）──
