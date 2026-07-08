@@ -184,6 +184,83 @@ export interface DiveResult {
 }
 
 // ────────────────────────────────────────────────────────────
+// M6: 個人戦バッチ大会（企画書5章 / 13.5 / 実装プラン M6）
+//   シーズン = 予選（総当たりリーグ）→ 決勝（単純トーナメント）→ 昇降格。
+//   すべて battle() を再利用した決定論の純粋関数（"戦闘エンジンは1回だけ実装"）。
+//   バッチ（M6.3）は 1ラウンド/日 で回すため、各試合のシードは
+//   (seasonSeed, roundKey, matchIndex) から独立に導出（deriveSeed）＝冪等・再現可。
+// ────────────────────────────────────────────────────────────
+
+/** 大会の出場者（DB: characters.id + その時点のビルド。engine はビルドしか要らない）。 */
+export interface TournamentEntrant {
+  id: string;
+  build: CharacterBuild;
+}
+
+/** 対戦カード（side A = a / side B = b）。バッチはこれを1件 = matches 1行に落とす。 */
+export interface MatchPairing {
+  a: string; // entrant id（side A）
+  b: string; // entrant id（side B）
+}
+
+/** 1カードの結果（DB matches 行の engine 側ビュー。eventLog はそのまま保存＝再生の正本）。 */
+export interface MatchOutcome {
+  a: string;
+  b: string;
+  seed: number;
+  winner: SideId | 'draw'; // 'A' = a の勝ち / 'B' = b の勝ち
+  winnerId: string | null; // 勝者の entrant id（引き分け = null）
+  turns: number;
+  eventLog: BattleEvent[];
+}
+
+/** 順位表の1行（企画書5.2 の対戦帯内順位）。 */
+export interface Standing {
+  id: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  points: number; // TOURNAMENT.pointsWin/Draw/Loss
+  rank: number; // 1 始まり（1 = 首位）
+}
+
+/** 予選リーグ（総当たり）1シーズンぶん。rounds は 1ラウンド/日 でバッチが処理する単位。 */
+export interface LeagueResult {
+  rounds: MatchOutcome[][];
+  standings: Standing[]; // rank 昇順（首位が先頭）
+}
+
+/** 決勝トーナメントの1試合（round=0 が初戦・slot=ブラケット位置）。 */
+export interface BracketMatch {
+  round: number;
+  slot: number;
+  outcome: MatchOutcome;
+}
+
+/** 決勝トーナメント（単純シングルイリミネーション）。 */
+export interface BracketResult {
+  seeds: string[]; // 出場者（予選順位＝シード順）
+  matches: BracketMatch[];
+  championId: string;
+}
+
+/** 昇降格の判定結果（企画書5.2 J1/J2 ラダー）。 */
+export interface PromotionResult {
+  promote: string[]; // 上位ディビジョンへ
+  relegate: string[]; // 下位ディビジョンへ
+  stay: string[];
+}
+
+/** 1シーズン総合（予選 → 決勝 → 昇降格）。1シードから完全再現。 */
+export interface SeasonResult {
+  seed: number;
+  league: LeagueResult;
+  bracket: BracketResult | null; // 出場者 2 未満なら null
+  championId: string | null;
+  promotion: PromotionResult;
+}
+
+// ────────────────────────────────────────────────────────────
 // 状態異常（MVPは sleep のみ・毒/麻痺は将来拡張／企画書3.5.2）
 // ────────────────────────────────────────────────────────────
 export type StatusKey = 'sleep';

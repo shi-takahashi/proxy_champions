@@ -39,3 +39,23 @@ export class Rng {
     return minInclusive + Math.floor(this.next() * (maxExclusive - minInclusive));
   }
 }
+
+/**
+ * M6: 決定論のサブシード導出（FNV-1a 系の文字列ハッシュ混合）。
+ *
+ * (seasonSeed, roundKey, matchIndex …) から、その試合専用の 32bit シードを独立に作る。
+ * dive() のような逐次 rng 列と違い「任意の試合を単独で再計算できる」＝バッチの冪等性に必須
+ * （再実行しても同じカードは同じシード → 同じ結果／実装プラン 13.5「冪等」）。
+ * Date.now()/Math.random() は不使用（決定論）。
+ */
+export function deriveSeed(seasonSeed: number, ...parts: (string | number)[]): number {
+  let h = (seasonSeed >>> 0) || 1;
+  for (const p of parts) {
+    const s = String(p);
+    for (let i = 0; i < s.length; i++) {
+      h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
+    }
+    h = (h ^ 0x9e3779b9) >>> 0; // パート境界を混ぜる（"a","bc" と "ab","c" を分ける）
+  }
+  return (h >>> 0) || 1; // 0 を避ける（Rng は 0 を 1 に正規化するが明示）
+}
