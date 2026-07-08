@@ -4,6 +4,7 @@ import '../config.dart';
 import '../models/battle_event.dart';
 import '../models/character_build.dart';
 import '../models/game_models.dart';
+import '../models/tournament_models.dart';
 
 /// M4 の縦スライスをサーバーとつなぐ薄い API 層。
 /// 匿名Auth → キャラ作成(DB) → run-battle(Edge Function) → matches 読み戻し。
@@ -162,5 +163,68 @@ class BattleApi {
     if (gold < cost) throw Exception('ゴールド不足（必要 $cost / 所持 $gold）');
     await _c.from('players').update({'gold': gold - cost}).eq('id', userId);
     await saveAllocation(characterId, stats, lines);
+  }
+
+  // ── M6.3: 観戦（大会）─────────────────────────────────────
+  // すべて全員参照の共有コンテンツ（非同期観戦）。誰の大会でも順位/カード/ログを読める。
+
+  /// 最新の1大会を観戦ビューとして取得（無ければ null）。
+  /// MVP は「直近に開催された大会」を出す（所属ディビジョン絞り込みは後日）。
+  Future<TournamentView?> fetchLatestTournamentView() async {
+    final t = await _c
+        .from('tournaments')
+        .select('*')
+        .order('created_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+    if (t == null) return null;
+    return _buildTournamentView(TournamentSummary.fromRow(t), t['promotion']);
+  }
+
+  Future<TournamentView> _buildTournamentView(
+      TournamentSummary summary, dynamic promotionJson) async {
+    final id = summary.id;
+
+    // 名前 snapshot（characters.name は RLS で他人ぶんを読めないため entrants から）
+    final ents = await _c
+        .from('tournament_entrants')
+        .select('character_id, name')
+        .eq('tournament_id', id);
+    final names = <String, String>{
+      for (final e in ents as List)
+        e['character_id'] as String: (e['name'] as String?) ?? '???',
+    };
+
+    final st = await _c
+        .from('standings')
+        .select('*')
+        .eq('tournament_id', id)
+        .order('rank');
+    final standings =
+        (st as List).map((e) => StandingRow.fromRow(e as Map<String, dynamic>)).toList();
+
+    final ms = await _c
+        .from('matches')
+        .select('id, phase, round, character_a, character_b, winner, status')
+        .eq('tournament_id', id);
+    final matches =
+        (ms as List).map((e) => TournamentMatch.fromRow(e as Map<String, dynamic>)).toList();
+    // 予選(league)→決勝(bracket)、round 昇順で並べる
+    matches.sort((a, b) {
+      if (a.phase != b.phase) return a.phase == 'league' ? -1 : 1;
+      return a.round.compareTo(b.round);
+    });
+
+    final promotion = promotionJson is Map
+        ? Promotion.fromJson(Map<String, dynamic>.from(promotionJson))
+        : null;
+
+    return TournamentView(
+      summary: summary,
+      names: names,
+      standings: standings,
+      matches: matches,
+      promotion: promotion,
+    );
   }
 }

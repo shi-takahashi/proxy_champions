@@ -5,6 +5,7 @@ import '../../services/battle_api.dart';
 import '../allocate/allocate_screen.dart';
 import '../dispatch/dispatch_screen.dart';
 import '../replay/replay_screen.dart';
+import '../tournament/tournament_screen.dart';
 
 /// M5.4: 育成ループのホーム（1ユーザー1キャラのダッシュボード）。
 /// Lv/XP・体力・ゴールド・回復薬を表示し、派遣／回復／ステ振り／練習試合へ。
@@ -64,6 +65,12 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => AllocateScreen(api: widget.api, character: _char!)),
     );
     if (changed == true) await _reload();
+  }
+
+  Future<void> _openTournament() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => TournamentScreen(api: widget.api)),
+    );
   }
 
   Future<void> _usePotion() async {
@@ -173,6 +180,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: _busy ? null : _openAllocate,
                 icon: const Icon(Icons.tune),
                 label: const Text('ステ振り / 育成'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _openTournament,
+                icon: const Icon(Icons.emoji_events),
+                label: const Text('大会を観る 🏆'),
               ),
               const SizedBox(height: 12),
               TextButton.icon(

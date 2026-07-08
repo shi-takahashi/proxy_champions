@@ -76,6 +76,7 @@ async function svcWrite(
 // ── DB 行（snake_case）→ engine の CharacterBuild（camelCase 契約）
 interface CharacterRow {
   id: string;
+  name: string;
   level: number;
   stats: CharacterBuild['stats'];
   spell_lines: CharacterBuild['spellLines'];
@@ -106,10 +107,10 @@ async function handleOpen(body: Record<string, unknown>): Promise<Response> {
   const name = (body.name as string | undefined) ?? 'シーズン';
   const season = (body.season as number | undefined) ?? null;
 
-  // 1. 出場者ビルドを service_role で読む（entrants に snapshot する正本）
+  // 1. 出場者ビルド＋表示名を service_role で読む（entrants に snapshot する正本）
   const idList = characterIds.map((id) => `"${id}"`).join(',');
   const chars = await svcGet<CharacterRow>(
-    `characters?id=in.(${idList})&select=id,level,stats,spell_lines,equipment`,
+    `characters?id=in.(${idList})&select=id,name,level,stats,spell_lines,equipment`,
   );
   if (chars.length !== characterIds.length) {
     return json({ error: '存在しない characterId が含まれる', found: chars.length, requested: characterIds.length }, 400);
@@ -128,11 +129,12 @@ async function handleOpen(body: Record<string, unknown>): Promise<Response> {
   ) as { id: string }[];
   const tournamentId = tournament.id;
 
-  // 4. entrants を snapshot（エントリー順 = 対戦表生成の決定論的順序）
+  // 4. entrants を snapshot（エントリー順 = 対戦表生成の決定論的順序・name は観戦 UI 用）
   const entrantRows = characterIds.map((cid, i) => ({
     tournament_id: tournamentId,
     character_id: cid,
     seed_order: i,
+    name: byId.get(cid)!.name,
     build: rowToBuild(byId.get(cid)!),
   }));
   await svcWrite('POST', 'tournament_entrants', entrantRows);
