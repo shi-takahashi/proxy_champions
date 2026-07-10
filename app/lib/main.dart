@@ -79,7 +79,9 @@ class _BootState extends State<_Boot> {
         }
         return CreateScreen(
           api: _api,
-          onCreated: () => setState(() => _ready = Future.value(true)),
+          onCreated: () => setState(() {
+            _ready = Future.value(true);
+          }),
         );
       },
     );

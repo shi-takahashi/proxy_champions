@@ -41,6 +41,32 @@ class Character {
       );
 }
 
+/// run-dispatch(status) の体力スナップショット。
+/// 実効HP（自然回復込み）と回復ETAはサーバー（engine staminaRecover）が算出する。
+class HpStatus {
+  final int hp; // 実効HP（回復反映後）
+  final int maxHp;
+  final bool resting; // hp <= 0（派遣不可）
+  final int minutesToFull; // 満タンまでの推定分（0=満タン）
+  final int minutesToReady; // 派遣可能（1以上）までの推定分（0=すでに可能）
+
+  const HpStatus({
+    required this.hp,
+    required this.maxHp,
+    required this.resting,
+    required this.minutesToFull,
+    required this.minutesToReady,
+  });
+
+  factory HpStatus.fromJson(Map<String, dynamic> j) => HpStatus(
+        hp: (j['hp'] as num).toInt(),
+        maxHp: (j['maxHp'] as num).toInt(),
+        resting: j['resting'] as bool,
+        minutesToFull: (j['minutesToFull'] as num).toInt(),
+        minutesToReady: (j['minutesToReady'] as num).toInt(),
+      );
+}
+
 /// プレイヤー資源（= players 行）。
 class PlayerState {
   final int gold;

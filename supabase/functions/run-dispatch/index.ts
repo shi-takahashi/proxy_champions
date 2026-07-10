@@ -9,6 +9,8 @@
  *          ・体力ループ: 帰還時 hpRemaining を current_hp に保存（次の派遣へ持ち越す）
  *     { action: 'use_potion', characterId }
  *        → 回復薬を1つ消費して体力を満タンに（players.potions を減算）
+ *     { action: 'status', characterId }
+ *        → 現在の実効体力（自然回復込み）と回復ETA（満タン/派遣可能まで）を返す（ホーム表示用）
  *
  * engine は同一ソースを相対 import（"戦闘エンジンは1回だけ実装"／企画書13.1）。
  * engine を変更したら engine/ で `deno task sync-edge` を再実行して _engine を更新する。
@@ -16,7 +18,7 @@
  */
 import { dive, staminaRecover } from '../_engine/dive.ts';
 import { gainXp } from '../_engine/growth.ts';
-import { maxHP } from '../_engine/formulas.ts';
+import { CONFIG, maxHP } from '../_engine/formulas.ts';
 import type { CharacterBuild, DungeonDef } from '../_engine/schema.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -204,6 +206,38 @@ async function handleDispatch(authHeader: string, body: Record<string, unknown>)
   });
 }
 
+/**
+ * 現在の実効体力（自然回復を反映）と回復ETAを返す（ホーム表示用）。
+ * 回復式の正本は engine staminaRecover。表示のためだけの ETA もここ（サーバー）で算出し、
+ * クライアントに式を持たせない（企画書13.1「戦闘/成長の計算はサーバー権威」）。
+ */
+async function handleStatus(authHeader: string, body: Record<string, unknown>): Promise<Response> {
+  const characterId = body.characterId as string | undefined;
+  if (!characterId) return json({ error: 'characterId が必要' }, 400);
+
+  const row = await readOwnedCharacter(authHeader, characterId);
+  if (!row) return json({ error: 'character not found or not owned' }, 404);
+
+  const now = Date.now();
+  const maxHp = maxHP(row.stats.vit);
+  const hp = effectiveHp(row, maxHp, now);
+
+  // ETA: 保存 HP + 経過分×perMin が目標 T に達するまでの残り分（floor(値)>=T ⇔ 値>=T）。
+  const stored = row.current_hp ?? maxHp;
+  const elapsedMin = (now - Date.parse(row.hp_updated_at)) / 60000;
+  const perMin = CONFIG.dive.regenPctPerMinute * maxHp; // 最大HPの%/分 → HP/分
+  const minutesTo = (target: number): number =>
+    perMin > 0 ? Math.max(0, Math.ceil((target - stored) / perMin - elapsedMin)) : 0;
+
+  return json({
+    hp,
+    maxHp,
+    resting: hp <= 0,
+    minutesToFull: hp >= maxHp ? 0 : minutesTo(maxHp), // 満タンまで
+    minutesToReady: hp >= 1 ? 0 : minutesTo(1), // 派遣可能（1以上）まで
+  });
+}
+
 async function handleUsePotion(authHeader: string, body: Record<string, unknown>): Promise<Response> {
   const characterId = body.characterId as string | undefined;
   if (!characterId) return json({ error: 'characterId が必要' }, 400);
@@ -255,7 +289,9 @@ Deno.serve(async (req) => {
       return await handleDispatch(authHeader, body);
     case 'use_potion':
       return await handleUsePotion(authHeader, body);
+    case 'status':
+      return await handleStatus(authHeader, body);
     default:
-      return json({ error: "action は 'dispatch' | 'use_potion'" }, 400);
+      return json({ error: "action は 'dispatch' | 'use_potion' | 'status'" }, 400);
   }
 });

@@ -20,6 +20,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   Character? _char;
   PlayerState? _player;
+  HpStatus? _hp; // 実効体力（サーバー算出）。取得失敗時は null → 保存値にフォールバック。
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -38,10 +39,20 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final char = await widget.api.fetchMyCharacter();
       final player = await widget.api.fetchPlayerState();
+      // 実効体力はサーバー算出。落ちても本体表示は止めない（保存値へフォールバック）。
+      HpStatus? hp;
+      if (char != null) {
+        try {
+          hp = await widget.api.fetchHpStatus(char.id);
+        } catch (_) {
+          hp = null;
+        }
+      }
       if (!mounted) return;
       setState(() {
         _char = char;
         _player = player;
+        _hp = hp;
         _loading = false;
       });
     } catch (e) {
@@ -111,6 +122,26 @@ class _HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  /// 体力バーの補足文（自然回復のETA）。サーバー未取得(null)なら従来文言。
+  String? _hpNote(HpStatus? hs) {
+    if (hs == null) return null;
+    if (hs.resting) {
+      return '力尽きている — ${_fmtMin(hs.minutesToReady)}で派遣可能（回復薬なら即満タン）';
+    }
+    if (hs.minutesToFull > 0) {
+      return '満タンまで${_fmtMin(hs.minutesToFull)}（毎分 最大HPの1%回復）';
+    }
+    return null; // 満タン
+  }
+
+  /// 分を「約N分 / 約N時間M分」に整形。
+  String _fmtMin(int m) {
+    if (m <= 0) return 'まもなく';
+    if (m < 60) return '約$m分';
+    final h = m ~/ 60, mm = m % 60;
+    return mm == 0 ? '約$h時間' : '約$h時間$mm分';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -130,8 +161,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final xp = c.xpProgress;
-    final hp = c.hpValue, mhp = c.maxHpValue;
-    final resting = hp <= 0;
+    // 実効体力はサーバー算出（自然回復込み）。取得できなければ保存値にフォールバック。
+    final hs = _hp;
+    final hp = hs?.hp ?? c.hpValue;
+    final mhp = hs?.maxHp ?? c.maxHpValue;
+    final resting = hs?.resting ?? (hp <= 0);
+    final hpNote = _hpNote(hs);
 
     return Scaffold(
       appBar: AppBar(
@@ -146,8 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _bar('XP', xp.intoLevel, xp.toNext, Colors.amber, '次のLvまであとXP ${xp.toNext - xp.intoLevel}'),
               const SizedBox(height: 14),
-              _bar('体力', hp, mhp, resting ? Colors.grey : Colors.redAccent,
-                  resting ? '力尽きている（回復薬か自然回復を待つ）' : null),
+              _bar('体力', hp, mhp, resting ? Colors.grey : Colors.redAccent, hpNote),
               const SizedBox(height: 20),
               Row(
                 children: [

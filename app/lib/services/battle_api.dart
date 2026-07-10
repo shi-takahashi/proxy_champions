@@ -92,6 +92,15 @@ class BattleApi {
     return row == null ? null : Character.fromRow(row);
   }
 
+  /// 現在の実効体力（自然回復込み）と回復ETA。サーバー（engine staminaRecover）が算出。
+  Future<HpStatus> fetchHpStatus(String characterId) async {
+    final data = await _invokeDispatch('体力', {
+      'action': 'status',
+      'characterId': characterId,
+    });
+    return HpStatus.fromJson(data);
+  }
+
   /// プレイヤー資源（ゴールド・回復薬）。
   Future<PlayerState> fetchPlayerState() async {
     final userId = _c.auth.currentUser!.id;
