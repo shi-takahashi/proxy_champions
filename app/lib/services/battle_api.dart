@@ -92,13 +92,13 @@ class BattleApi {
     return row == null ? null : Character.fromRow(row);
   }
 
-  /// 現在の実効体力（自然回復込み）と回復ETA。サーバー（engine staminaRecover）が算出。
-  Future<HpStatus> fetchHpStatus(String characterId) async {
-    final data = await _invokeDispatch('体力', {
+  /// キャラ状態（実効体力＋回復ETA＋派遣中かどうか）。サーバーが算出。
+  Future<CharacterStatus> fetchStatus(String characterId) async {
+    final data = await _invokeDispatch('状態取得', {
       'action': 'status',
       'characterId': characterId,
     });
-    return HpStatus.fromJson(data);
+    return CharacterStatus.fromJson(data);
   }
 
   /// プレイヤー資源（ゴールド・回復薬）。
@@ -120,10 +120,31 @@ class BattleApi {
         .toList();
   }
 
-  /// 派遣（run-dispatch: dispatch）。サーバーで dive() → 報酬/体力/ドロップを反映。
-  Future<DispatchResult> dispatch(String characterId, String dungeonId, int minutes) async {
+  /// 派遣を開始（run-dispatch: dispatch）。実時間・非同期＝指定時間は留守にし、後で受け取る。
+  /// 帰還までの残り分を返す（体力0の強制帰還なら指定より短い）。
+  Future<int> startDispatch(String characterId, String dungeonId, int minutes) async {
     final data = await _invokeDispatch('派遣', {
       'action': 'dispatch',
+      'characterId': characterId,
+      'dungeonId': dungeonId,
+      'minutes': minutes,
+    });
+    return (data['minutesRemaining'] as num).toInt();
+  }
+
+  /// 帰還を受け取る（run-dispatch: collect）。帰還予定時刻を過ぎていれば報酬を確定して返す。
+  Future<DispatchResult> collectDispatch(String characterId) async {
+    final data = await _invokeDispatch('帰還受け取り', {
+      'action': 'collect',
+      'characterId': characterId,
+    });
+    return DispatchResult.fromJson(data);
+  }
+
+  /// ★デバッグ用: 即時解決（run-dispatch: dispatch_instant）。押した瞬間に結果まで反映。
+  Future<DispatchResult> dispatchInstant(String characterId, String dungeonId, int minutes) async {
+    final data = await _invokeDispatch('即時派遣', {
+      'action': 'dispatch_instant',
       'characterId': characterId,
       'dungeonId': dungeonId,
       'minutes': minutes,

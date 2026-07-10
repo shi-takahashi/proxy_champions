@@ -19,6 +19,7 @@ class _DispatchScreenState extends State<DispatchScreen> {
   Dungeon? _selected;
   int _minutes = 30;
   bool _busy = false;
+  bool _debugInstant = false; // ★デバッグ: 即時解決（本来は実時間で留守にする）
   String? _error;
   DispatchResult? _result;
 
@@ -50,9 +51,17 @@ class _DispatchScreenState extends State<DispatchScreen> {
       _error = null;
     });
     try {
-      final r = await widget.api.dispatch(widget.character.id, _selected!.id, _minutes);
-      if (!mounted) return;
-      setState(() => _result = r);
+      if (_debugInstant) {
+        // デバッグ: 即時解決 → 帰還サマリをその場で表示（動作確認用）
+        final r = await widget.api.dispatchInstant(widget.character.id, _selected!.id, _minutes);
+        if (!mounted) return;
+        setState(() => _result = r);
+      } else {
+        // 本来の挙動: 派遣を開始して留守にする → ホームへ戻り「派遣中」表示
+        await widget.api.startDispatch(widget.character.id, _selected!.id, _minutes);
+        if (!mounted) return;
+        Navigator.of(context).pop(true);
+      }
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
@@ -113,16 +122,31 @@ class _DispatchScreenState extends State<DispatchScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        const Text('長く潜るほど稼げるが、体力が尽きると強制帰還（そこまでの報酬は持ち帰る）。',
-            style: TextStyle(fontSize: 11, color: Colors.white54)),
-        const SizedBox(height: 24),
+        Text(
+          _debugInstant
+              ? '【デバッグ】押した瞬間に結果まで解決します（留守にしない）。'
+              : '派遣中はキャラが留守になり、指定時間は戻りません（アプリは閉じてOK）。'
+                  '長く潜るほど稼げるが、体力が尽きると強制帰還（そこまでの報酬は持ち帰る）。',
+          style: const TextStyle(fontSize: 11, color: Colors.white54),
+        ),
+        const SizedBox(height: 16),
+        CheckboxListTile(
+          value: _debugInstant,
+          onChanged: _busy ? null : (v) => setState(() => _debugInstant = v ?? false),
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('即時解決（デバッグ）', style: TextStyle(fontSize: 13)),
+          subtitle: const Text('待たずに結果を確認したい時用', style: TextStyle(fontSize: 11)),
+        ),
+        const SizedBox(height: 12),
         FilledButton(
           onPressed: _busy || _selected == null ? null : _dispatch,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: _busy
                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('この設定で派遣 ▶'),
+                : Text(_debugInstant ? '即時解決で派遣 ▶（デバッグ）' : 'この設定で派遣 ▶'),
           ),
         ),
         if (_error != null) ...[

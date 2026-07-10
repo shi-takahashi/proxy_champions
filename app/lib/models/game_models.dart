@@ -41,29 +41,41 @@ class Character {
       );
 }
 
-/// run-dispatch(status) の体力スナップショット。
-/// 実効HP（自然回復込み）と回復ETAはサーバー（engine staminaRecover）が算出する。
-class HpStatus {
-  final int hp; // 実効HP（回復反映後）
+/// run-dispatch(status) のキャラ状態スナップショット。
+/// 実効HP（自然回復込み）・回復ETA・派遣中かどうかを、すべてサーバーが算出する。
+class CharacterStatus {
+  final int hp; // 実効HP（回復反映後／派遣中は出発時点で固定）
   final int maxHp;
   final bool resting; // hp <= 0（派遣不可）
   final int minutesToFull; // 満タンまでの推定分（0=満タン）
   final int minutesToReady; // 派遣可能（1以上）までの推定分（0=すでに可能）
+  final bool dispatching; // 派遣中（留守）
+  final bool canCollect; // 帰還予定時刻を過ぎ、受け取り可能
+  final int minutesRemaining; // 帰還までの残り分（派遣中のみ）
+  final String dungeonName; // 派遣先（派遣中のみ）
 
-  const HpStatus({
+  const CharacterStatus({
     required this.hp,
     required this.maxHp,
     required this.resting,
     required this.minutesToFull,
     required this.minutesToReady,
+    required this.dispatching,
+    required this.canCollect,
+    required this.minutesRemaining,
+    required this.dungeonName,
   });
 
-  factory HpStatus.fromJson(Map<String, dynamic> j) => HpStatus(
+  factory CharacterStatus.fromJson(Map<String, dynamic> j) => CharacterStatus(
         hp: (j['hp'] as num).toInt(),
         maxHp: (j['maxHp'] as num).toInt(),
         resting: j['resting'] as bool,
         minutesToFull: (j['minutesToFull'] as num).toInt(),
         minutesToReady: (j['minutesToReady'] as num).toInt(),
+        dispatching: (j['dispatching'] as bool?) ?? false,
+        canCollect: (j['canCollect'] as bool?) ?? false,
+        minutesRemaining: (j['minutesRemaining'] as num?)?.toInt() ?? 0,
+        dungeonName: (j['dungeonName'] as String?) ?? '',
       );
 }
 

@@ -4,13 +4,18 @@
  *   POST /functions/v1/run-dispatch   header: Authorization: Bearer <jwt>
  *   body:
  *     { action: 'dispatch', characterId, dungeonId, minutes }
- *        → 現在の体力（自然回復を反映）から dive() を回し、XP/ゴールド/体力/ドロップを DB に反映
+ *        → 派遣を「開始」する（実時間・非同期／企画書3.3.1）。決定論シミュ結果を dispatch_pending に
+ *          退避し、帰還予定時刻 dispatch_ends_at をセットするだけ。報酬はまだ渡さない（留守にする）。
+ *     { action: 'collect', characterId }
+ *        → 帰還予定時刻を過ぎていれば、退避した結果を確定して受け取る（XP/ゴールド/体力/ドロップを反映）。
  *          ・xp→level は engine growth(gainXp) が正本（level 列を materialize）
  *          ・体力ループ: 帰還時 hpRemaining を current_hp に保存（次の派遣へ持ち越す）
+ *     { action: 'dispatch_instant', characterId, dungeonId, minutes }   ★デバッグ用
+ *        → 旧挙動: 押した瞬間に全連戦を解決して即座に報酬まで反映（動作確認を速くするため温存）。
  *     { action: 'use_potion', characterId }
  *        → 回復薬を1つ消費して体力を満タンに（players.potions を減算）
  *     { action: 'status', characterId }
- *        → 現在の実効体力（自然回復込み）と回復ETA（満タン/派遣可能まで）を返す（ホーム表示用）
+ *        → 実効体力（自然回復込み）＋回復ETA、および派遣中かどうか/帰還までの残り分を返す（ホーム表示用）
  *
  * engine は同一ソースを相対 import（"戦闘エンジンは1回だけ実装"／企画書13.1）。
  * engine を変更したら engine/ で `deno task sync-edge` を再実行して _engine を更新する。
@@ -19,7 +24,7 @@
 import { dive, staminaRecover } from '../_engine/dive.ts';
 import { gainXp } from '../_engine/growth.ts';
 import { CONFIG, maxHP } from '../_engine/formulas.ts';
-import type { CharacterBuild, DungeonDef } from '../_engine/schema.ts';
+import type { CharacterBuild, DiveResult, DungeonDef } from '../_engine/schema.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -45,9 +50,26 @@ interface CharacterRow {
   xp: number;
   current_hp: number | null;
   hp_updated_at: string;
+  dispatch_ends_at: string | null; // null=未派遣
+  dispatch_pending: PendingDispatch | null; // 派遣中に退避した確定用データ
   stats: CharacterBuild['stats'];
   spell_lines: CharacterBuild['spellLines'];
   equipment: CharacterBuild['equipment'];
+}
+
+/** 派遣開始時に退避し、帰還（collect）で適用する確定データ。dive は決定論なので開始時に一度だけ回す。 */
+interface PendingDispatch {
+  seed: number;
+  dungeonId: string;
+  dungeonName: string;
+  minutes: number; // 指定した潜航時間（分）
+  startHp: number;
+  startedAt: string; // ISO
+  endsAt: string; // ISO（体力0の強制帰還なら指定より早い）
+  result: DiveResult; // 退避した明細（受け取りで DB へ）
+  newXpTotal: number;
+  level: number;
+  leveledUp: number;
 }
 
 function toBuild(row: CharacterRow): CharacterBuild {
@@ -91,64 +113,55 @@ function effectiveHp(row: CharacterRow, maxHp: number, now: number): number {
   return staminaRecover(stored, maxHp, elapsedMin);
 }
 
-async function handleDispatch(authHeader: string, body: Record<string, unknown>): Promise<Response> {
-  const characterId = body.characterId as string | undefined;
-  const dungeonId = body.dungeonId as string | undefined;
-  const minutes = Number(body.minutes);
-  if (!characterId || !dungeonId) return json({ error: 'characterId と dungeonId が必要' }, 400);
-  if (!Number.isFinite(minutes) || minutes <= 0) return json({ error: 'minutes は正の数' }, 400);
-
-  // 1. 自分のキャラ
-  const row = await readOwnedCharacter(authHeader, characterId);
-  if (!row) return json({ error: 'character not found or not owned' }, 404);
-
-  // 2. ダンジョン（共有コンテンツ＝anon で読める）
+/** ダンジョン定義＋表示名を取得（共有コンテンツ＝anon で読める）。 */
+async function fetchDungeon(
+  authHeader: string,
+  dungeonId: string,
+): Promise<{ def: DungeonDef; name: string } | null> {
   const dRes = await fetch(
     `${SUPABASE_URL}/rest/v1/dungeons?id=eq.${dungeonId}&select=*`,
     { headers: { apikey: ANON_KEY, Authorization: authHeader } },
   );
   const dRows = await dRes.json();
-  if (!dRes.ok || !Array.isArray(dRows) || dRows.length === 0) {
-    return json({ error: 'dungeon not found' }, 404);
-  }
-  const drow = dRows[0] as { slug: string; difficulty: number; drop_table: { equipment_id: string; weight: number }[] };
-  const dungeon: DungeonDef = {
-    slug: drow.slug,
-    difficulty: drow.difficulty,
-    dropTable: (drow.drop_table ?? []).map((e) => ({ equipmentId: e.equipment_id, weight: e.weight })),
+  if (!dRes.ok || !Array.isArray(dRows) || dRows.length === 0) return null;
+  const drow = dRows[0] as {
+    name: string;
+    slug: string;
+    difficulty: number;
+    drop_table: { equipment_id: string; weight: number }[];
   };
+  return {
+    name: drow.name,
+    def: {
+      slug: drow.slug,
+      difficulty: drow.difficulty,
+      dropTable: (drow.drop_table ?? []).map((e) => ({ equipmentId: e.equipment_id, weight: e.weight })),
+    },
+  };
+}
 
-  // 3. 実効体力（自然回復込み）から派遣。体力0 は派遣不可（要回復／企画書3.3「体力1以上なら再派遣」）
-  const now = Date.now();
-  const maxHp = maxHP(row.stats.vit);
-  const startHp = effectiveHp(row, maxHp, now);
-  if (startHp <= 0) return json({ error: 'resting: 体力が尽きている（回復薬か自然回復を待つ）' }, 409);
-
-  const hero = toBuild(row);
-  const seed = Math.floor(Math.random() * 0x7fffffff);
-  const result = dive(hero, dungeon, seed, minutes, { startHp });
-
-  // 4. 報酬適用（xp→level は gainXp が正本／体力ループ: hpRemaining を保存）
-  const newXpTotal = Number(row.xp) + result.totalXp;
-  const prog = gainXp(row.xp, result.totalXp);
-  const nowIso = new Date(now).toISOString();
-
-  const charPatch = await fetch(`${SUPABASE_URL}/rest/v1/characters?id=eq.${characterId}`, {
+/** dive の帰結を DB に反映（char 更新＋ゴールド＋ドロップ＋履歴）。dispatch_* もここでクリアする。 */
+async function applyRewards(
+  row: CharacterRow,
+  p: PendingDispatch,
+  returnedAtIso: string,
+): Promise<{ dispatchId: string } | { error: unknown }> {
+  const r = p.result;
+  const charPatch = await fetch(`${SUPABASE_URL}/rest/v1/characters?id=eq.${row.id}`, {
     method: 'PATCH',
     headers: svcHeaders({ Prefer: 'return=minimal' }),
     body: JSON.stringify({
-      xp: newXpTotal,
-      level: prog.progress.level,
-      current_hp: result.hpRemaining,
-      hp_updated_at: nowIso,
+      xp: p.newXpTotal,
+      level: p.level,
+      current_hp: r.hpRemaining,
+      hp_updated_at: returnedAtIso, // 帰還時刻＝自然回復の起点
+      dispatch_ends_at: null, // 留守を解除
+      dispatch_pending: null,
     }),
   });
-  if (!charPatch.ok) {
-    return json({ error: 'character 更新失敗', detail: await charPatch.json() }, 502);
-  }
+  if (!charPatch.ok) return { error: await charPatch.json() };
 
-  // ゴールドは players に加算（現在値を service_role で読んで足す）
-  if (result.totalGold > 0) {
+  if (r.totalGold > 0) {
     const pRes = await fetch(
       `${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}&select=gold`,
       { headers: svcHeaders() },
@@ -158,12 +171,11 @@ async function handleDispatch(authHeader: string, body: Record<string, unknown>)
     await fetch(`${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}`, {
       method: 'PATCH',
       headers: svcHeaders({ Prefer: 'return=minimal' }),
-      body: JSON.stringify({ gold: curGold + result.totalGold }),
+      body: JSON.stringify({ gold: curGold + r.totalGold }),
     });
   }
 
-  // ドロップ装備を所持に反映（型は所持有無＝重複は無視）
-  for (const equipmentId of result.drops) {
+  for (const equipmentId of r.drops) {
     await fetch(`${SUPABASE_URL}/rest/v1/player_equipment`, {
       method: 'POST',
       headers: svcHeaders({ Prefer: 'resolution=ignore-duplicates,return=minimal' }),
@@ -171,39 +183,165 @@ async function handleDispatch(authHeader: string, body: Record<string, unknown>)
     });
   }
 
-  // 5. 派遣履歴（DiveResult）を保存
   const dispInsert = await fetch(`${SUPABASE_URL}/rest/v1/dispatches`, {
     method: 'POST',
     headers: svcHeaders({ Prefer: 'return=representation' }),
     body: JSON.stringify({
       player_id: row.player_id,
-      character_id: characterId,
-      dungeon_id: dungeonId,
-      minutes,
-      seed,
-      start_hp: startHp,
-      end_reason: result.endReason,
-      xp_gained: result.totalXp,
-      gold_gained: result.totalGold,
-      hp_remaining: result.hpRemaining,
-      result,
+      character_id: row.id,
+      dungeon_id: p.dungeonId,
+      minutes: p.minutes,
+      seed: p.seed,
+      start_hp: p.startHp,
+      end_reason: r.endReason,
+      xp_gained: r.totalXp,
+      gold_gained: r.totalGold,
+      hp_remaining: r.hpRemaining,
+      result: r,
     }),
   });
   const disp = await dispInsert.json();
-  if (!dispInsert.ok) return json({ error: 'dispatch 保存失敗', detail: disp }, 502);
+  if (!dispInsert.ok) return { error: disp };
+  return { dispatchId: disp[0].id };
+}
 
-  return json({
-    dispatchId: disp[0].id,
-    battles: result.battles.length,
-    endReason: result.endReason,
-    xpGained: result.totalXp,
-    goldGained: result.totalGold,
-    drops: result.drops,
-    level: prog.progress.level,
-    leveledUp: prog.leveledUp,
-    hpRemaining: result.hpRemaining,
+/** 帰還サマリ（アプリの DispatchResult 契約）。 */
+function buildReport(p: PendingDispatch, dispatchId: string): Record<string, unknown> {
+  const r = p.result;
+  return {
+    dispatchId,
+    battles: r.battles.length,
+    endReason: r.endReason,
+    xpGained: r.totalXp,
+    goldGained: r.totalGold,
+    drops: r.drops,
+    level: p.level,
+    leveledUp: p.leveledUp,
+    hpRemaining: r.hpRemaining,
+    startHp: p.startHp,
+  };
+}
+
+/**
+ * 共通の派遣シミュ: 実効体力から dive() を回し、退避用 PendingDispatch を組む（DBへの適用はしない）。
+ * 帰還予定時刻 endsAt は実際に潜った時間（minutesElapsed）＝体力0の強制帰還なら指定より早い。
+ */
+function simulateDispatch(
+  row: CharacterRow,
+  dungeon: { def: DungeonDef; name: string },
+  dungeonId: string,
+  minutes: number,
+  now: number,
+): { pending: PendingDispatch; startHp: number } | null {
+  const maxHp = maxHP(row.stats.vit);
+  const startHp = effectiveHp(row, maxHp, now);
+  if (startHp <= 0) return null; // 体力切れ
+
+  const seed = Math.floor(Math.random() * 0x7fffffff);
+  const result = dive(toBuild(row), dungeon.def, seed, minutes, { startHp });
+  const prog = gainXp(row.xp, result.totalXp);
+  const endsAt = now + result.minutesElapsed * 60000;
+
+  return {
     startHp,
+    pending: {
+      seed,
+      dungeonId,
+      dungeonName: dungeon.name,
+      minutes,
+      startHp,
+      startedAt: new Date(now).toISOString(),
+      endsAt: new Date(endsAt).toISOString(),
+      result,
+      newXpTotal: Number(row.xp) + result.totalXp,
+      level: prog.progress.level,
+      leveledUp: prog.leveledUp,
+    },
+  };
+}
+
+/** 派遣を「開始」する（実時間・非同期）。結果は退避し、帰還予定時刻まで留守にする。 */
+async function handleDispatch(authHeader: string, body: Record<string, unknown>): Promise<Response> {
+  const characterId = body.characterId as string | undefined;
+  const dungeonId = body.dungeonId as string | undefined;
+  const minutes = Number(body.minutes);
+  if (!characterId || !dungeonId) return json({ error: 'characterId と dungeonId が必要' }, 400);
+  if (!Number.isFinite(minutes) || minutes <= 0) return json({ error: 'minutes は正の数' }, 400);
+
+  const row = await readOwnedCharacter(authHeader, characterId);
+  if (!row) return json({ error: 'character not found or not owned' }, 404);
+  if (row.dispatch_ends_at) return json({ error: 'すでに派遣中（帰還を待つ）' }, 409);
+
+  const dungeon = await fetchDungeon(authHeader, dungeonId);
+  if (!dungeon) return json({ error: 'dungeon not found' }, 404);
+
+  const now = Date.now();
+  const sim = simulateDispatch(row, dungeon, dungeonId, minutes, now);
+  if (!sim) return json({ error: 'resting: 体力が尽きている（回復薬か自然回復を待つ）' }, 409);
+
+  // 退避＋留守フラグをセット（報酬はまだ渡さない）。
+  const patch = await fetch(`${SUPABASE_URL}/rest/v1/characters?id=eq.${characterId}`, {
+    method: 'PATCH',
+    headers: svcHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify({
+      dispatch_ends_at: sim.pending.endsAt,
+      dispatch_pending: sim.pending,
+    }),
   });
+  if (!patch.ok) return json({ error: 'dispatch 開始失敗', detail: await patch.json() }, 502);
+
+  const minutesRemaining = Math.max(1, Math.ceil((Date.parse(sim.pending.endsAt) - now) / 60000));
+  return json({
+    status: 'dispatched',
+    dungeonName: dungeon.name,
+    endsAt: sim.pending.endsAt,
+    minutesRemaining,
+  });
+}
+
+/** ★デバッグ用: 旧挙動。押した瞬間に解決して即報酬まで反映（留守にしない）。 */
+async function handleDispatchInstant(authHeader: string, body: Record<string, unknown>): Promise<Response> {
+  const characterId = body.characterId as string | undefined;
+  const dungeonId = body.dungeonId as string | undefined;
+  const minutes = Number(body.minutes);
+  if (!characterId || !dungeonId) return json({ error: 'characterId と dungeonId が必要' }, 400);
+  if (!Number.isFinite(minutes) || minutes <= 0) return json({ error: 'minutes は正の数' }, 400);
+
+  const row = await readOwnedCharacter(authHeader, characterId);
+  if (!row) return json({ error: 'character not found or not owned' }, 404);
+  if (row.dispatch_ends_at) return json({ error: 'すでに派遣中（先に帰還を受け取る）' }, 409);
+
+  const dungeon = await fetchDungeon(authHeader, dungeonId);
+  if (!dungeon) return json({ error: 'dungeon not found' }, 404);
+
+  const now = Date.now();
+  const sim = simulateDispatch(row, dungeon, dungeonId, minutes, now);
+  if (!sim) return json({ error: 'resting: 体力が尽きている（回復薬か自然回復を待つ）' }, 409);
+
+  const applied = await applyRewards(row, sim.pending, new Date(now).toISOString());
+  if ('error' in applied) return json({ error: 'dispatch 保存失敗', detail: applied.error }, 502);
+  return json(buildReport(sim.pending, applied.dispatchId));
+}
+
+/** 帰還予定時刻を過ぎていれば、退避した結果を確定して受け取る。 */
+async function handleCollect(authHeader: string, body: Record<string, unknown>): Promise<Response> {
+  const characterId = body.characterId as string | undefined;
+  if (!characterId) return json({ error: 'characterId が必要' }, 400);
+
+  const row = await readOwnedCharacter(authHeader, characterId);
+  if (!row) return json({ error: 'character not found or not owned' }, 404);
+  const pending = row.dispatch_pending;
+  if (!row.dispatch_ends_at || !pending) return json({ error: '派遣していない' }, 409);
+
+  const now = Date.now();
+  const endsMs = Date.parse(row.dispatch_ends_at);
+  if (now < endsMs) {
+    return json({ error: 'まだ帰還していない', minutesRemaining: Math.ceil((endsMs - now) / 60000) }, 409);
+  }
+
+  const applied = await applyRewards(row, pending, row.dispatch_ends_at);
+  if ('error' in applied) return json({ error: 'dispatch 受け取り失敗', detail: applied.error }, 502);
+  return json(buildReport(pending, applied.dispatchId));
 }
 
 /**
@@ -220,6 +358,24 @@ async function handleStatus(authHeader: string, body: Record<string, unknown>): 
 
   const now = Date.now();
   const maxHp = maxHP(row.stats.vit);
+
+  // 派遣中は「留守」＝自然回復もETAも出さず、帰還までの残り分と受け取り可否だけ返す。
+  if (row.dispatch_ends_at) {
+    const endsMs = Date.parse(row.dispatch_ends_at);
+    const frozenHp = Math.min(maxHp, Math.max(0, row.current_hp ?? maxHp)); // 出発時点の体力（回復させない）
+    return json({
+      hp: frozenHp,
+      maxHp,
+      resting: false,
+      minutesToFull: 0,
+      minutesToReady: 0,
+      dispatching: true,
+      canCollect: now >= endsMs,
+      minutesRemaining: Math.max(0, Math.ceil((endsMs - now) / 60000)),
+      dungeonName: row.dispatch_pending?.dungeonName ?? '',
+    });
+  }
+
   const hp = effectiveHp(row, maxHp, now);
 
   // ETA: 保存 HP + 経過分×perMin が目標 T に達するまでの残り分（floor(値)>=T ⇔ 値>=T）。
@@ -235,6 +391,10 @@ async function handleStatus(authHeader: string, body: Record<string, unknown>): 
     resting: hp <= 0,
     minutesToFull: hp >= maxHp ? 0 : minutesTo(maxHp), // 満タンまで
     minutesToReady: hp >= 1 ? 0 : minutesTo(1), // 派遣可能（1以上）まで
+    dispatching: false,
+    canCollect: false,
+    minutesRemaining: 0,
+    dungeonName: '',
   });
 }
 
@@ -287,11 +447,17 @@ Deno.serve(async (req) => {
   switch (body.action) {
     case 'dispatch':
       return await handleDispatch(authHeader, body);
+    case 'dispatch_instant':
+      return await handleDispatchInstant(authHeader, body);
+    case 'collect':
+      return await handleCollect(authHeader, body);
     case 'use_potion':
       return await handleUsePotion(authHeader, body);
     case 'status':
       return await handleStatus(authHeader, body);
     default:
-      return json({ error: "action は 'dispatch' | 'use_potion' | 'status'" }, 400);
+      return json({
+        error: "action は 'dispatch' | 'dispatch_instant' | 'collect' | 'use_potion' | 'status'",
+      }, 400);
   }
 });
