@@ -120,44 +120,32 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(r.returnedByKo ? '⚔ 力尽きて強制帰還' : '🏁 派遣から帰還'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('戦った回数: ${r.battles} 戦'),
-            Text('獲得経験値: +${r.xpGained}'),
-            if (r.leveledUp > 0) Text('レベルアップ: Lv${r.level}（+${r.leveledUp}）'),
-            Text('獲得コイン: +${r.goldGained}'),
-            Text('ドロップ: ${r.drops.isEmpty ? 'なし' : r.drops.join(', ')}'),
-            Text('残りHP: ${r.hpRemaining}${mhp != null ? ' / $mhp' : ''}'),
-            Text('残りMP: ${r.mpRemaining}${mmp != null ? ' / $mmp' : ''}'),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK')),
-        ],
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('戦った回数: ${r.battles} 戦'), Text('獲得経験値: +${r.xpGained}'), if (r.leveledUp > 0) Text('レベルアップ: Lv${r.level}（+${r.leveledUp}）'), Text('獲得コイン: +${r.goldGained}'), Text('ドロップ: ${r.drops.isEmpty ? 'なし' : r.drops.join(', ')}'), Text('残りHP: ${r.hpRemaining}${mhp != null ? ' / $mhp' : ''}'), Text('残りMP: ${r.mpRemaining}${mmp != null ? ' / $mmp' : ''}')]),
+        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
       ),
     );
   }
 
   Future<void> _openDispatch() async {
     final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => DispatchScreen(api: widget.api, character: _char!)),
+      MaterialPageRoute(
+        builder: (_) => DispatchScreen(api: widget.api, character: _char!),
+      ),
     );
     if (result == true) await _reload();
   }
 
   Future<void> _openAllocate() async {
     final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => AllocateScreen(api: widget.api, character: _char!)),
+      MaterialPageRoute(
+        builder: (_) => AllocateScreen(api: widget.api, character: _char!),
+      ),
     );
     if (changed == true) await _reload();
   }
 
   Future<void> _openTournament() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => TournamentScreen(api: widget.api)),
-    );
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => TournamentScreen(api: widget.api)));
   }
 
   Future<void> _usePotion() async {
@@ -185,7 +173,9 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       if (!mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ReplayScreen(eventLog: log, nameOf: nameOf)),
+        MaterialPageRoute(
+          builder: (_) => ReplayScreen(eventLog: log, nameOf: nameOf),
+        ),
       );
     } catch (e) {
       if (mounted) _snack('$e');
@@ -238,8 +228,11 @@ class _HomeScreenState extends State<HomeScreen> {
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text('読み込み失敗:\n${_error ?? '不明'}',
-                textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+            child: Text(
+              '読み込み失敗:\n${_error ?? '不明'}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.red),
+            ),
           ),
         ),
       );
@@ -274,13 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 14),
               _bar('MP', mp, mmp, Colors.blueAccent, mpNote),
               const SizedBox(height: 20),
-              Row(
-                children: [
-                  _chip(Icons.monetization_on, '${p.gold} コイン'),
-                  const SizedBox(width: 12),
-                  _chip(Icons.local_drink, '回復薬 ${p.potions}'),
-                ],
-              ),
+              Row(children: [_chip(Icons.monetization_on, '${p.gold} コイン'), const SizedBox(width: 12), _chip(Icons.local_drink, '回復薬 ${p.potions}')]),
               const SizedBox(height: 8),
               _equipLine(c),
               const SizedBox(height: 12),
@@ -303,30 +290,20 @@ class _HomeScreenState extends State<HomeScreen> {
               OutlinedButton.icon(
                 onPressed: (_busy || dispatching || p.potions <= 0 || hp >= mhp) ? null : _usePotion,
                 icon: const Icon(Icons.local_drink),
-                label: Text(p.potions <= 0
-                    ? '回復薬がない'
-                    : hp >= mhp
-                        ? 'HPは満タン'
-                        : '回復薬を使う（HPを満タンに）'),
+                label: Text(
+                  p.potions <= 0
+                      ? '回復薬を使う'
+                      : hp >= mhp
+                      ? 'HPは満タン'
+                      : '回復薬を使う（HPを満タンに）',
+                ),
               ),
               const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: (_busy || dispatching) ? null : _openAllocate,
-                icon: const Icon(Icons.tune),
-                label: const Text('ステ振り / 育成'),
-              ),
+              OutlinedButton.icon(onPressed: (_busy || dispatching) ? null : _openAllocate, icon: const Icon(Icons.tune), label: const Text('ステータス / 育成')),
               const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _openTournament,
-                icon: const Icon(Icons.emoji_events),
-                label: const Text('大会を観る 🏆'),
-              ),
+              OutlinedButton.icon(onPressed: _busy ? null : _openTournament, icon: const Icon(Icons.emoji_events), label: const Text('大会を観る 🏆')),
               const SizedBox(height: 12),
-              TextButton.icon(
-                onPressed: (_busy || dispatching) ? null : _practice,
-                icon: const Icon(Icons.sports_kabaddi),
-                label: const Text('練習試合（スパーリング1戦）'),
-              ),
+              OutlinedButton.icon(onPressed: (_busy || dispatching) ? null : _practice, icon: const Icon(Icons.sports_kabaddi), label: const Text('練習試合')),
             ],
           ),
         ),
@@ -348,17 +325,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 const Icon(Icons.hourglass_top),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('派遣中：${s.dungeonName.isEmpty ? 'ダンジョン' : s.dungeonName}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  child: Text('派遣中：${s.dungeonName.isEmpty ? 'ダンジョン' : s.dungeonName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Text('帰還まで ${_fmtMin(s.minutesRemaining)}',
-                style: const TextStyle(fontSize: 14)),
+            Text('帰還まで ${_fmtMin(s.minutesRemaining)}', style: const TextStyle(fontSize: 14)),
             const SizedBox(height: 4),
-            const Text('アプリは閉じてOK。帰還後にまた開くと結果を受け取れます。',
-                style: TextStyle(fontSize: 11, color: Colors.white54)),
+            const Text('アプリは閉じてOK。帰還後にまた開くと結果を受け取れます。', style: TextStyle(fontSize: 11, color: Colors.white54)),
           ],
         ),
       ),
@@ -382,10 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
           borderRadius: BorderRadius.circular(6),
           child: LinearProgressIndicator(value: frac, minHeight: 12, color: color),
         ),
-        if (note != null) ...[
-          const SizedBox(height: 4),
-          Text(note, style: const TextStyle(fontSize: 11, color: Colors.white54)),
-        ],
+        if (note != null) ...[const SizedBox(height: 4), Text(note, style: const TextStyle(fontSize: 11, color: Colors.white54))],
       ],
     );
   }
@@ -396,11 +367,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _equipLine(Character c) {
     final e = c.build.equipment;
-    final parts = [e.weapon, e.armor, e.shield]
-        .whereType<String>()
-        .map(equipmentName)
-        .join(' / ');
-    return Text('装備: ${parts.isEmpty ? 'なし' : parts}',
-        style: const TextStyle(fontSize: 12, color: Colors.white54));
+    final parts = [e.weapon, e.armor, e.shield].whereType<String>().map(equipmentName).join(' / ');
+    return Text('装備: ${parts.isEmpty ? 'なし' : parts}', style: const TextStyle(fontSize: 12, color: Colors.white54));
   }
 }
