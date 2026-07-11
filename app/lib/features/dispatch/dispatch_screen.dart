@@ -126,7 +126,7 @@ class _DispatchScreenState extends State<DispatchScreen> {
           _debugInstant
               ? '【デバッグ】押した瞬間に結果まで解決します（留守にしない）。'
               : '派遣中はキャラが留守になり、指定時間は戻りません（アプリは閉じてOK）。'
-                  '長く潜るほど稼げるが、体力が尽きると強制帰還（そこまでの報酬は持ち帰る）。',
+                  '長く潜るほど稼げるが、HPが尽きると強制帰還（そこまでの報酬は持ち帰る）。',
           style: const TextStyle(fontSize: 11, color: Colors.white54),
         ),
         const SizedBox(height: 16),
@@ -174,7 +174,7 @@ class _DispatchScreenState extends State<DispatchScreen> {
         if (r.leveledUp > 0) _row('レベルアップ', 'Lv${r.level} へ（+${r.leveledUp}）', highlight: true),
         _row('獲得コイン', '+${r.goldGained}'),
         _row('ドロップ', r.drops.isEmpty ? 'なし' : r.drops.join(', ')),
-        _row('残り体力', '${r.hpRemaining} / $mhp'),
+        _row('残りHP', '${r.hpRemaining} / $mhp'),
         const SizedBox(height: 28),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),

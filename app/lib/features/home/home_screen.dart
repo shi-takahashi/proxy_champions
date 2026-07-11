@@ -126,7 +126,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (r.leveledUp > 0) Text('レベルアップ: Lv${r.level}（+${r.leveledUp}）'),
             Text('獲得コイン: +${r.goldGained}'),
             Text('ドロップ: ${r.drops.isEmpty ? 'なし' : r.drops.join(', ')}'),
-            Text('残り体力: ${r.hpRemaining}${mhp != null ? ' / $mhp' : ''}'),
+            Text('残りHP: ${r.hpRemaining}${mhp != null ? ' / $mhp' : ''}'),
           ],
         ),
         actions: [
@@ -254,7 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _bar('経験値', xp.intoLevel, xp.toNext, Colors.amber, '次のLvまであと ${xp.toNext - xp.intoLevel}'),
               const SizedBox(height: 14),
-              _bar('体力', hp, mhp, resting ? Colors.grey : Colors.redAccent, hpNote),
+              _bar('HP', hp, mhp, resting ? Colors.grey : Colors.redAccent, hpNote),
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -281,8 +281,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: Text(p.potions <= 0
                     ? '回復薬がない'
                     : hp >= mhp
-                        ? '体力は満タン'
-                        : '回復薬を使う（体力を満タンに）'),
+                        ? 'HPは満タン'
+                        : '回復薬を使う（HPを満タンに）'),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
