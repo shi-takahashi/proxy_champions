@@ -188,25 +188,26 @@ class _HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  /// 体力バーの補足文（自然回復のETA）。サーバー未取得(null)なら従来文言。
+  /// HPバーの補足文（自然回復のETA＝完全回復まで）。サーバー未取得(null)なら文言なし。
+  /// ※以前は「HP1で派遣可能まで」を出していたが、HP1派遣は無意味なので完全回復までに変更。
   String? _hpNote(CharacterStatus? hs) {
     if (hs == null) return null;
     if (hs.resting) {
-      return '力尽きている — ${_fmtMin(hs.minutesToReady)}で派遣可能（回復薬なら即満タン）';
+      return '力尽きている — 完全回復まで${_fmtMin(hs.minutesToFull)}（回復薬で即完全回復）';
     }
     if (hs.minutesToFull > 0) {
-      return '満タンまで${_fmtMin(hs.minutesToFull)}（毎分 最大HPの1%回復）';
+      return '完全回復まで${_fmtMin(hs.minutesToFull)}（毎分 最大HPの1%回復）';
     }
-    return null; // 満タン
+    return null; // 完全回復済み
   }
 
-  /// MPバーの補足文（自然回復のETA）。派遣中・満タン・未取得なら文言なし。
+  /// MPバーの補足文（自然回復のETA＝完全回復まで）。派遣中・回復済み・未取得なら文言なし。
   String? _mpNote(CharacterStatus? hs) {
     if (hs == null || hs.dispatching) return null;
     if (hs.mpMinutesToFull > 0) {
-      return '満タンまで${_fmtMin(hs.mpMinutesToFull)}（毎分 最大MPの1%回復）';
+      return '完全回復まで${_fmtMin(hs.mpMinutesToFull)}（毎分 最大MPの1%回復）';
     }
-    return null; // 満タン
+    return null; // 完全回復済み
   }
 
   /// 分を「約N分 / 約N時間M分」に整形。
