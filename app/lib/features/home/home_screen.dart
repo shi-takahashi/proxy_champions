@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/game_models.dart';
+import '../../models/stat_labels.dart';
 import '../../services/battle_api.dart';
 import '../allocate/allocate_screen.dart';
 import '../dispatch/dispatch_screen.dart';
@@ -387,7 +388,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _equipLine(Character c) {
     final e = c.build.equipment;
-    final parts = [e.weapon, e.armor, e.shield].where((x) => x != null).join(' / ');
+    final parts = [e.weapon, e.armor, e.shield]
+        .whereType<String>()
+        .map(equipmentName)
+        .join(' / ');
     return Text('装備: ${parts.isEmpty ? 'なし' : parts}',
         style: const TextStyle(fontSize: 12, color: Colors.white54));
   }

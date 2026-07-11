@@ -19,3 +19,20 @@ const Map<String, (String, String)> lineInfo = {
   'sleep': ('眠りの魔法', '敵を眠らせて動きを止める'),
   'strength': ('力アップ', '自分の物理攻撃を強化する'),
 };
+
+/// 装備ID → 日本語名。DB の equipment_catalog.name（seed）のミラー。
+/// ★装備を増やしたら DB seed（20260705000003_equipment.sql）とここを揃えること。
+const Map<String, String> equipmentNames = {
+  'sword_iron': '鉄の剣',
+  'axe_battle': '戦斧',
+  'dagger': '短剣',
+  'staff_oak': '樫の杖',
+  'mail_leather': '革鎧',
+  'mail_iron': '鉄鎧',
+  'robe': 'ローブ',
+  'shield_wood': '木の盾',
+  'shield_iron': '鉄の盾',
+};
+
+/// 装備ID → 日本語名（未知IDはそのまま返す）。
+String equipmentName(String id) => equipmentNames[id] ?? id;
