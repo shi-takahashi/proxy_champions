@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../models/game_models.dart';
 import '../../models/stat_labels.dart';
 import '../../services/battle_api.dart';
+import '../../widgets/build_preview.dart';
 import '../allocate/allocate_screen.dart';
 import '../dispatch/dispatch_screen.dart';
 import '../replay/replay_screen.dart';
@@ -282,6 +283,13 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 8),
               _equipLine(c),
+              const SizedBox(height: 12),
+              BuildPreview(
+                stats: c.build.stats,
+                lines: c.build.spellLines,
+                equipment: c.build.equipment,
+                includeMaxHpMp: false, // HP/MP はバーで見えるので省く
+              ),
               const Divider(height: 40),
               if (dispatching) _dispatchingCard(hs!),
               if (!dispatching)

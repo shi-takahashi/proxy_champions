@@ -4,6 +4,10 @@ import '../../models/character_build.dart';
 import '../../models/game_math.dart';
 import '../../models/stat_labels.dart';
 import '../../services/battle_api.dart';
+import '../../widgets/build_preview.dart';
+
+// 初期装備は共通の基本セット（装備の切り替えは今後の育成で）。
+const _starterEquipment = EquipmentLoadout(weapon: 'sword_iron', armor: 'mail_leather');
 
 /// M5.4: 初回のみ。名前をつけ、Lv1 の配分プール（basePool）を自分好みに振ってキャラを作成。
 /// 職業（クラス）は無い。近接寄り・魔法寄りなど、ステと魔法ラインの振り方で個性を出す。
@@ -33,6 +37,13 @@ class _CreateScreenState extends State<CreateScreen> {
     setState(() => map[key] = next);
   }
 
+  Stats _currentStats() => Stats(
+      vit: _stats['vit']!, mag: _stats['mag']!, pow: _stats['pow']!,
+      spd: _stats['spd']!, men: _stats['men']!);
+  SpellLines _currentLines() => SpellLines(
+      fire: _lines['fire']!, cure: _lines['cure']!,
+      sleep: _lines['sleep']!, strength: _lines['strength']!);
+
   Future<void> _create() async {
     setState(() {
       _busy = true;
@@ -42,10 +53,9 @@ class _CreateScreenState extends State<CreateScreen> {
       final name = _name.text.trim();
       final build = CharacterBuild(
         level: 1,
-        stats: Stats(vit: _stats['vit']!, mag: _stats['mag']!, pow: _stats['pow']!, spd: _stats['spd']!, men: _stats['men']!),
-        spellLines: SpellLines(fire: _lines['fire']!, cure: _lines['cure']!, sleep: _lines['sleep']!, strength: _lines['strength']!),
-        // 初期装備は共通の基本セット（装備の切り替えは今後の育成で）。
-        equipment: const EquipmentLoadout(weapon: 'sword_iron', armor: 'mail_leather'),
+        stats: _currentStats(),
+        spellLines: _currentLines(),
+        equipment: _starterEquipment,
       );
       await widget.api.createCharacter(name, build);
       if (!mounted) return;
@@ -95,6 +105,8 @@ class _CreateScreenState extends State<CreateScreen> {
               const Text('10 ポイントごとに 1 段階強くなる。0 のままなら覚えない。', style: TextStyle(fontSize: 11, color: Colors.white54)),
               const SizedBox(height: 4),
               for (final k in lineKeys) _row(_lineTitle(k), lineInfo[k]!.$2, _lines[k]!, () => _bump(_lines, k, -1, 0), () => _bump(_lines, k, 1, 0), check.unspent > 0),
+              const SizedBox(height: 16),
+              BuildPreview(stats: _currentStats(), lines: _currentLines(), equipment: _starterEquipment),
               const SizedBox(height: 20),
               if (check.unspent > 0) Text('残り ${check.unspent} ポイントは今振らなくてもOK（あとで振れます）', style: const TextStyle(fontSize: 12, color: Colors.white54)),
               const SizedBox(height: 12),

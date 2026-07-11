@@ -5,6 +5,7 @@ import '../../models/game_math.dart';
 import '../../models/game_models.dart';
 import '../../models/stat_labels.dart';
 import '../../services/battle_api.dart';
+import '../../widgets/build_preview.dart';
 
 /// M5.4: ステ振り / 魔法ライン投資 / リスペック（企画書3.5）。
 /// 1プール（poolForLevel）を基本5ステ＋4ラインで奪い合う。振り足し=無料、
@@ -68,18 +69,21 @@ class _AllocateScreenState extends State<AllocateScreen> {
     setState(() => map[key] = next);
   }
 
+  Stats _currentStats() => Stats(
+      vit: _stats['vit']!, mag: _stats['mag']!, pow: _stats['pow']!,
+      spd: _stats['spd']!, men: _stats['men']!);
+  SpellLines _currentLines() => SpellLines(
+      fire: _lines['fire']!, cure: _lines['cure']!,
+      sleep: _lines['sleep']!, strength: _lines['strength']!);
+
   Future<void> _save() async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final stats = Stats(
-          vit: _stats['vit']!, mag: _stats['mag']!, pow: _stats['pow']!,
-          spd: _stats['spd']!, men: _stats['men']!);
-      final lines = SpellLines(
-          fire: _lines['fire']!, cure: _lines['cure']!,
-          sleep: _lines['sleep']!, strength: _lines['strength']!);
+      final stats = _currentStats();
+      final lines = _currentLines();
       if (_isRespec) {
         await widget.api.respecAllocation(
             widget.character.id, stats, lines, respecCost(widget.character.level));
@@ -127,6 +131,12 @@ class _AllocateScreenState extends State<AllocateScreen> {
               for (final k in lineKeys)
                 _stepper(_lineTitle(k), lineInfo[k]!.$2, _lines[k]!,
                     () => _bump(_lines, k, -1, 0), () => _bump(_lines, k, 1, 0), check.unspent > 0),
+              const SizedBox(height: 16),
+              BuildPreview(
+                stats: _currentStats(),
+                lines: _currentLines(),
+                equipment: widget.character.build.equipment,
+              ),
               const SizedBox(height: 20),
               if (_isRespec)
                 Container(
