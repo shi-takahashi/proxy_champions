@@ -10,7 +10,7 @@ import '../replay/replay_screen.dart';
 import '../tournament/tournament_screen.dart';
 
 /// M5.4: 育成ループのホーム（1ユーザー1キャラのダッシュボード）。
-/// Lv/XP・体力・ゴールド・回復薬を表示し、派遣／回復／ステ振り／練習試合へ。
+/// Lv/経験値・HP/MP・コイン・回復薬を表示し、派遣／回復／ステ振り／練習試合へ。
 class HomeScreen extends StatefulWidget {
   final BattleApi api;
   const HomeScreen({super.key, required this.api});
@@ -113,6 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showReport(DispatchResult r) async {
     if (!mounted) return;
     final mhp = _char?.maxHpValue;
+    final mmp = _char?.maxMpValue;
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -127,6 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('獲得コイン: +${r.goldGained}'),
             Text('ドロップ: ${r.drops.isEmpty ? 'なし' : r.drops.join(', ')}'),
             Text('残りHP: ${r.hpRemaining}${mhp != null ? ' / $mhp' : ''}'),
+            Text('残りMP: ${r.mpRemaining}${mmp != null ? ' / $mmp' : ''}'),
           ],
         ),
         actions: [
@@ -206,6 +208,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return null; // 満タン
   }
 
+  /// MPバーの補足文（自然回復のETA）。派遣中・満タン・未取得なら文言なし。
+  String? _mpNote(CharacterStatus? hs) {
+    if (hs == null || hs.dispatching) return null;
+    if (hs.mpMinutesToFull > 0) {
+      return '満タンまで${_fmtMin(hs.mpMinutesToFull)}（毎分 最大MPの1%回復）';
+    }
+    return null; // 満タン
+  }
+
   /// 分を「約N分 / 約N時間M分」に整形。
   String _fmtMin(int m) {
     if (m <= 0) return 'まもなく';
@@ -237,8 +248,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final hs = _status;
     final hp = hs?.hp ?? c.hpValue;
     final mhp = hs?.maxHp ?? c.maxHpValue;
+    final mp = hs?.mp ?? c.mpValue; // MP も HP と同じ管理資源
+    final mmp = hs?.maxMp ?? c.maxMpValue;
     final resting = hs?.resting ?? (hp <= 0);
     final hpNote = _hpNote(hs);
+    final mpNote = _mpNote(hs);
     final dispatching = hs?.dispatching ?? false; // 派遣中＝留守（キャラ操作は不可）
 
     return Scaffold(
@@ -255,6 +269,8 @@ class _HomeScreenState extends State<HomeScreen> {
               _bar('経験値', xp.intoLevel, xp.toNext, Colors.amber, '次のLvまであと ${xp.toNext - xp.intoLevel}'),
               const SizedBox(height: 14),
               _bar('HP', hp, mhp, resting ? Colors.grey : Colors.redAccent, hpNote),
+              const SizedBox(height: 14),
+              _bar('MP', mp, mmp, Colors.blueAccent, mpNote),
               const SizedBox(height: 20),
               Row(
                 children: [

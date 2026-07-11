@@ -159,6 +159,7 @@ class _DispatchScreenState extends State<DispatchScreen> {
 
   Widget _summary(DispatchResult r) {
     final mhp = widget.character.maxHpValue;
+    final mmp = widget.character.maxMpValue;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -175,6 +176,7 @@ class _DispatchScreenState extends State<DispatchScreen> {
         _row('獲得コイン', '+${r.goldGained}'),
         _row('ドロップ', r.drops.isEmpty ? 'なし' : r.drops.join(', ')),
         _row('残りHP', '${r.hpRemaining} / $mhp'),
+        _row('残りMP', '${r.mpRemaining} / $mmp'),
         const SizedBox(height: 28),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),

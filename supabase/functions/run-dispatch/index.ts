@@ -23,7 +23,7 @@
  */
 import { dive, staminaRecover } from '../_engine/dive.ts';
 import { gainXp } from '../_engine/growth.ts';
-import { CONFIG, maxHP } from '../_engine/formulas.ts';
+import { CONFIG, maxHP, maxMP } from '../_engine/formulas.ts';
 import type { CharacterBuild, DiveResult, DungeonDef } from '../_engine/schema.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -50,6 +50,8 @@ interface CharacterRow {
   xp: number;
   current_hp: number | null;
   hp_updated_at: string;
+  current_mp: number | null; // null=満タン（HP と同じ管理資源）
+  mp_updated_at: string; // MP 自然回復の起点（HP と独立クロック）
   dispatch_ends_at: string | null; // null=未派遣
   dispatch_pending: PendingDispatch | null; // 派遣中に退避した確定用データ
   stats: CharacterBuild['stats'];
@@ -64,6 +66,7 @@ interface PendingDispatch {
   dungeonName: string;
   minutes: number; // 指定した潜航時間（分）
   startHp: number;
+  startMp: number;
   startedAt: string; // ISO
   endsAt: string; // ISO（体力0の強制帰還なら指定より早い）
   result: DiveResult; // 退避した明細（受け取りで DB へ）
@@ -113,6 +116,13 @@ function effectiveHp(row: CharacterRow, maxHp: number, now: number): number {
   return staminaRecover(stored, maxHp, elapsedMin);
 }
 
+/** 現在の実効MP＝保存 current_mp に自然回復を反映（null=満タン扱い・HP と同じ仕組み・同レート） */
+function effectiveMp(row: CharacterRow, maxMp: number, now: number): number {
+  const stored = row.current_mp ?? maxMp;
+  const elapsedMin = (now - Date.parse(row.mp_updated_at)) / 60000;
+  return staminaRecover(stored, maxMp, elapsedMin);
+}
+
 /** ダンジョン定義＋表示名を取得（共有コンテンツ＝anon で読める）。 */
 async function fetchDungeon(
   authHeader: string,
@@ -154,7 +164,9 @@ async function applyRewards(
       xp: p.newXpTotal,
       level: p.level,
       current_hp: r.hpRemaining,
-      hp_updated_at: returnedAtIso, // 帰還時刻＝自然回復の起点
+      hp_updated_at: returnedAtIso, // 帰還時刻＝HP 自然回復の起点
+      current_mp: r.mpRemaining,
+      mp_updated_at: returnedAtIso, // 帰還時刻＝MP 自然回復の起点
       dispatch_ends_at: null, // 留守を解除
       dispatch_pending: null,
     }),
@@ -218,6 +230,7 @@ function buildReport(p: PendingDispatch, dispatchId: string): Record<string, unk
     level: p.level,
     leveledUp: p.leveledUp,
     hpRemaining: r.hpRemaining,
+    mpRemaining: r.mpRemaining,
     startHp: p.startHp,
   };
 }
@@ -234,11 +247,13 @@ function simulateDispatch(
   now: number,
 ): { pending: PendingDispatch; startHp: number } | null {
   const maxHp = maxHP(row.stats.vit);
+  const maxMp = maxMP(row.stats.mag);
   const startHp = effectiveHp(row, maxHp, now);
   if (startHp <= 0) return null; // 体力切れ
+  const startMp = effectiveMp(row, maxMp, now); // MP は 0 でも派遣可（魔法が撃てず物理で戦う）
 
   const seed = Math.floor(Math.random() * 0x7fffffff);
-  const result = dive(toBuild(row), dungeon.def, seed, minutes, { startHp });
+  const result = dive(toBuild(row), dungeon.def, seed, minutes, { startHp, startMp });
   const prog = gainXp(row.xp, result.totalXp);
   const endsAt = now + minutes * 60000; // 指定した派遣時間ぶん留守にする（早期KOでも帰還は指定時刻）
 
@@ -250,6 +265,7 @@ function simulateDispatch(
       dungeonName: dungeon.name,
       minutes,
       startHp,
+      startMp,
       startedAt: new Date(now).toISOString(),
       endsAt: new Date(endsAt).toISOString(),
       result,
@@ -358,16 +374,21 @@ async function handleStatus(authHeader: string, body: Record<string, unknown>): 
 
   const now = Date.now();
   const maxHp = maxHP(row.stats.vit);
+  const maxMp = maxMP(row.stats.mag);
 
   // 派遣中は「留守」＝自然回復もETAも出さず、帰還までの残り分と受け取り可否だけ返す。
   if (row.dispatch_ends_at) {
     const endsMs = Date.parse(row.dispatch_ends_at);
-    const frozenHp = Math.min(maxHp, Math.max(0, row.current_hp ?? maxHp)); // 出発時点の体力（回復させない）
+    const frozenHp = Math.min(maxHp, Math.max(0, row.current_hp ?? maxHp)); // 出発時点のHP（回復させない）
+    const frozenMp = Math.min(maxMp, Math.max(0, row.current_mp ?? maxMp)); // 出発時点のMP（回復させない）
     return json({
       hp: frozenHp,
       maxHp,
+      mp: frozenMp,
+      maxMp,
       resting: false,
       minutesToFull: 0,
+      mpMinutesToFull: 0,
       minutesToReady: 0,
       dispatching: true,
       canCollect: now >= endsMs,
@@ -377,20 +398,31 @@ async function handleStatus(authHeader: string, body: Record<string, unknown>): 
   }
 
   const hp = effectiveHp(row, maxHp, now);
+  const mp = effectiveMp(row, maxMp, now);
 
-  // ETA: 保存 HP + 経過分×perMin が目標 T に達するまでの残り分（floor(値)>=T ⇔ 値>=T）。
-  const stored = row.current_hp ?? maxHp;
+  // ETA: 保存値 + 経過分×perMin が目標 T に達するまでの残り分（floor(値)>=T ⇔ 値>=T）。
   const elapsedMin = (now - Date.parse(row.hp_updated_at)) / 60000;
-  const perMin = CONFIG.dive.regenPctPerMinute * maxHp; // 最大HPの%/分 → HP/分
-  const minutesTo = (target: number): number =>
-    perMin > 0 ? Math.max(0, Math.ceil((target - stored) / perMin - elapsedMin)) : 0;
+  const storedHp = row.current_hp ?? maxHp;
+  const perMinHp = CONFIG.dive.regenPctPerMinute * maxHp; // 最大HPの%/分 → HP/分
+  const minutesToHp = (target: number): number =>
+    perMinHp > 0 ? Math.max(0, Math.ceil((target - storedHp) / perMinHp - elapsedMin)) : 0;
+
+  const elapsedMinMp = (now - Date.parse(row.mp_updated_at)) / 60000;
+  const storedMp = row.current_mp ?? maxMp;
+  const perMinMp = CONFIG.dive.regenPctPerMinute * maxMp; // 最大MPの%/分 → MP/分（HPと同レート）
+  const mpMinutesToFull = mp >= maxMp
+    ? 0
+    : (perMinMp > 0 ? Math.max(0, Math.ceil((maxMp - storedMp) / perMinMp - elapsedMinMp)) : 0);
 
   return json({
     hp,
     maxHp,
+    mp,
+    maxMp,
     resting: hp <= 0,
-    minutesToFull: hp >= maxHp ? 0 : minutesTo(maxHp), // 満タンまで
-    minutesToReady: hp >= 1 ? 0 : minutesTo(1), // 派遣可能（1以上）まで
+    minutesToFull: hp >= maxHp ? 0 : minutesToHp(maxHp), // HP 満タンまで
+    mpMinutesToFull, // MP 満タンまで
+    minutesToReady: hp >= 1 ? 0 : minutesToHp(1), // 派遣可能（HP 1以上）まで
     dispatching: false,
     canCollect: false,
     minutesRemaining: 0,

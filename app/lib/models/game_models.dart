@@ -11,6 +11,7 @@ class Character {
   final int level;
   final int xp;
   final int? currentHp; // null = 満タン（maxHp は engine 派生）
+  final int? currentMp; // null = 満タン（maxMp は engine 派生・HP と同じ管理資源）
   final CharacterBuild build;
 
   const Character({
@@ -19,11 +20,14 @@ class Character {
     required this.level,
     required this.xp,
     required this.currentHp,
+    required this.currentMp,
     required this.build,
   });
 
   int get maxHpValue => maxHp(build.stats.vit);
   int get hpValue => currentHp ?? maxHpValue;
+  int get maxMpValue => maxMp(build.stats.mag);
+  int get mpValue => currentMp ?? maxMpValue;
   XpProgress get xpProgress => progressForXp(xp);
 
   factory Character.fromRow(Map<String, dynamic> r) => Character(
@@ -32,6 +36,7 @@ class Character {
         level: r['level'] as int,
         xp: (r['xp'] as num).toInt(),
         currentHp: r['current_hp'] as int?,
+        currentMp: r['current_mp'] as int?,
         build: CharacterBuild(
           level: r['level'] as int,
           stats: Stats.fromJson(r['stats'] as Map<String, dynamic>),
@@ -46,9 +51,12 @@ class Character {
 class CharacterStatus {
   final int hp; // 実効HP（回復反映後／派遣中は出発時点で固定）
   final int maxHp;
+  final int mp; // 実効MP（回復反映後／派遣中は出発時点で固定・HP と同じ管理資源）
+  final int maxMp;
   final bool resting; // hp <= 0（派遣不可）
-  final int minutesToFull; // 満タンまでの推定分（0=満タン）
-  final int minutesToReady; // 派遣可能（1以上）までの推定分（0=すでに可能）
+  final int minutesToFull; // HP 満タンまでの推定分（0=満タン）
+  final int mpMinutesToFull; // MP 満タンまでの推定分（0=満タン）
+  final int minutesToReady; // 派遣可能（HP 1以上）までの推定分（0=すでに可能）
   final bool dispatching; // 派遣中（留守）
   final bool canCollect; // 帰還予定時刻を過ぎ、受け取り可能
   final int minutesRemaining; // 帰還までの残り分（派遣中のみ）
@@ -57,8 +65,11 @@ class CharacterStatus {
   const CharacterStatus({
     required this.hp,
     required this.maxHp,
+    required this.mp,
+    required this.maxMp,
     required this.resting,
     required this.minutesToFull,
+    required this.mpMinutesToFull,
     required this.minutesToReady,
     required this.dispatching,
     required this.canCollect,
@@ -69,8 +80,11 @@ class CharacterStatus {
   factory CharacterStatus.fromJson(Map<String, dynamic> j) => CharacterStatus(
         hp: (j['hp'] as num).toInt(),
         maxHp: (j['maxHp'] as num).toInt(),
+        mp: (j['mp'] as num?)?.toInt() ?? 0,
+        maxMp: (j['maxMp'] as num?)?.toInt() ?? 0,
         resting: j['resting'] as bool,
         minutesToFull: (j['minutesToFull'] as num).toInt(),
+        mpMinutesToFull: (j['mpMinutesToFull'] as num?)?.toInt() ?? 0,
         minutesToReady: (j['minutesToReady'] as num).toInt(),
         dispatching: (j['dispatching'] as bool?) ?? false,
         canCollect: (j['canCollect'] as bool?) ?? false,
@@ -130,6 +144,7 @@ class DispatchResult {
   final int level;
   final int leveledUp;
   final int hpRemaining;
+  final int mpRemaining;
   final int startHp;
 
   const DispatchResult({
@@ -142,6 +157,7 @@ class DispatchResult {
     required this.level,
     required this.leveledUp,
     required this.hpRemaining,
+    required this.mpRemaining,
     required this.startHp,
   });
 
@@ -157,6 +173,7 @@ class DispatchResult {
         level: j['level'] as int,
         leveledUp: j['leveledUp'] as int,
         hpRemaining: j['hpRemaining'] as int,
+        mpRemaining: (j['mpRemaining'] as num?)?.toInt() ?? 0,
         startHp: j['startHp'] as int,
       );
 }
