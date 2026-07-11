@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/character_build.dart';
 import '../../models/game_math.dart';
+import '../../models/stat_labels.dart';
 import '../../services/battle_api.dart';
 
 /// M5.4: 初回のみ。名前をつけ、Lv1 の配分プール（basePool）を自分好みに振ってキャラを作成。
@@ -15,12 +16,6 @@ class CreateScreen extends StatefulWidget {
   @override
   State<CreateScreen> createState() => _CreateScreenState();
 }
-
-// 各ステの日本語名と「何に効くか」の説明（VIT 等の略号ではなく意味で示す）。
-const _statInfo = <String, (String, String)>{'vit': ('体力', '最大HPが増える'), 'mag': ('魔力', '最大MP・魔法の威力・魔法への防御'), 'pow': ('力', '物理攻撃の威力'), 'spd': ('素早さ', '手数（行動の速さ）と物理回避'), 'men': ('精神', '眠りなど状態異常への耐性')};
-
-// 魔法ラインの日本語名と説明。10 ポイントごとに 1 段階強くなる。
-const _lineInfo = <String, (String, String)>{'fire': ('火の魔法', '敵にダメージを与える攻撃呪文'), 'cure': ('回復の魔法', '自分のHPを回復する'), 'sleep': ('眠りの魔法', '敵を眠らせて動きを止める'), 'strength': ('力アップ', '自分の物理攻撃を強化する')};
 
 class _CreateScreenState extends State<CreateScreen> {
   final TextEditingController _name = TextEditingController();
@@ -94,12 +89,12 @@ class _CreateScreenState extends State<CreateScreen> {
               const SizedBox(height: 12),
               const Text('基本ステータス', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
-              for (final k in statKeys) _row(_statInfo[k]!.$1, _statInfo[k]!.$2, _stats[k]!, () => _bump(_stats, k, -1, statFloor), () => _bump(_stats, k, 1, statFloor), check.unspent > 0),
+              for (final k in statKeys) _row(statInfo[k]!.$1, statInfo[k]!.$2, _stats[k]!, () => _bump(_stats, k, -1, statFloor), () => _bump(_stats, k, 1, statFloor), check.unspent > 0),
               const SizedBox(height: 16),
               const Text('魔法（覚えたい呪文に振る）', style: TextStyle(fontWeight: FontWeight.bold)),
               const Text('10 ポイントごとに 1 段階強くなる。0 のままなら覚えない。', style: TextStyle(fontSize: 11, color: Colors.white54)),
               const SizedBox(height: 4),
-              for (final k in lineKeys) _row(_lineTitle(k), _lineInfo[k]!.$2, _lines[k]!, () => _bump(_lines, k, -1, 0), () => _bump(_lines, k, 1, 0), check.unspent > 0),
+              for (final k in lineKeys) _row(_lineTitle(k), lineInfo[k]!.$2, _lines[k]!, () => _bump(_lines, k, -1, 0), () => _bump(_lines, k, 1, 0), check.unspent > 0),
               const SizedBox(height: 20),
               if (check.unspent > 0) Text('残り ${check.unspent} ポイントは今振らなくてもOK（あとで振れます）', style: const TextStyle(fontSize: 12, color: Colors.white54)),
               const SizedBox(height: 12),
@@ -122,7 +117,7 @@ class _CreateScreenState extends State<CreateScreen> {
   // 魔法ライン名に習得段階を併記（振っている時のみ）。
   String _lineTitle(String k) {
     final tier = _lines[k]! ~/ 10;
-    return tier > 0 ? '${_lineInfo[k]!.$1}（段階$tier）' : _lineInfo[k]!.$1;
+    return tier > 0 ? '${lineInfo[k]!.$1}（段階$tier）' : lineInfo[k]!.$1;
   }
 
   Widget _poolHeader(AllocationCheck check) {

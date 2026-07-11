@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import '../../models/character_build.dart';
 import '../../models/game_math.dart';
 import '../../models/game_models.dart';
+import '../../models/stat_labels.dart';
 import '../../services/battle_api.dart';
 
 /// M5.4: ステ振り / 魔法ライン投資 / リスペック（企画書3.5）。
 /// 1プール（poolForLevel）を基本5ステ＋4ラインで奪い合う。振り足し=無料、
-/// どれかを下げる=リスペック（ゴールド消費）。engine growth をミラーで検証。
+/// どれかを下げる=リスペック（コイン消費）。engine growth をミラーで検証。
+/// ラベルはキャラメイク（create）と共通の stat_labels を使い、表記を揃える。
 class AllocateScreen extends StatefulWidget {
   final BattleApi api;
   final Character character;
@@ -16,20 +18,6 @@ class AllocateScreen extends StatefulWidget {
   @override
   State<AllocateScreen> createState() => _AllocateScreenState();
 }
-
-const _statLabels = {
-  'vit': '体力 VIT',
-  'mag': '魔力 MAG',
-  'pow': '力 POW',
-  'spd': '素早さ SPD',
-  'men': '精神 MEN',
-};
-const _lineLabels = {
-  'fire': '火 FIRE',
-  'cure': '回復 CURE',
-  'sleep': '眠り SLEEP',
-  'strength': '力up STR',
-};
 
 class _AllocateScreenState extends State<AllocateScreen> {
   late final Map<String, int> _stats;
@@ -126,13 +114,18 @@ class _AllocateScreenState extends State<AllocateScreen> {
               _poolHeader(check),
               const SizedBox(height: 12),
               const Text('基本ステータス', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
               for (final k in statKeys)
-                _stepper(_statLabels[k]!, _stats[k]!, () => _bump(_stats, k, -1, statFloor),
+                _stepper(statInfo[k]!.$1, statInfo[k]!.$2, _stats[k]!,
+                    () => _bump(_stats, k, -1, statFloor),
                     () => _bump(_stats, k, 1, statFloor), check.unspent > 0),
               const SizedBox(height: 16),
-              const Text('魔法ライン（10 ごとに Tier 習得）', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('魔法（覚えたい呪文に振る）', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('10 ポイントごとに 1 段階強くなる。0 のままなら覚えない。',
+                  style: TextStyle(fontSize: 11, color: Colors.white54)),
+              const SizedBox(height: 4),
               for (final k in lineKeys)
-                _stepper('${_lineLabels[k]!}  (T${_lines[k]! ~/ 10})', _lines[k]!,
+                _stepper(_lineTitle(k), lineInfo[k]!.$2, _lines[k]!,
                     () => _bump(_lines, k, -1, 0), () => _bump(_lines, k, 1, 0), check.unspent > 0),
               const SizedBox(height: 20),
               if (_isRespec)
@@ -203,12 +196,28 @@ class _AllocateScreenState extends State<AllocateScreen> {
     );
   }
 
-  Widget _stepper(String label, int value, VoidCallback onMinus, VoidCallback onPlus, bool canAdd) {
+  // 魔法ライン名に習得段階を併記（振っている時のみ）。create と同じ表記。
+  String _lineTitle(String k) {
+    final tier = _lines[k]! ~/ 10;
+    return tier > 0 ? '${lineInfo[k]!.$1}（段階$tier）' : lineInfo[k]!.$1;
+  }
+
+  // 名前＋説明（左） / − 値 ＋（右）。キャラメイクの行と同じ見た目。
+  Widget _stepper(String title, String desc, int value, VoidCallback onMinus, VoidCallback onPlus,
+      bool canAdd) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Expanded(child: Text(label)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(desc, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+              ],
+            ),
+          ),
           IconButton(
             onPressed: _busy ? null : onMinus,
             icon: const Icon(Icons.remove_circle_outline),
