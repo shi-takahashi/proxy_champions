@@ -26,6 +26,12 @@ import { Rng } from './rng.ts';
 
 const HERO_ID = 'hero';
 
+/** 戦闘の行動回数（turns）を1戦の所要時間（分）に変換。上下限でクランプ。 */
+function battleMinutes(turns: number): number {
+  const dv = CONFIG.dive;
+  return Math.max(dv.minMinutesPerBattle, Math.min(dv.maxMinutesPerBattle, turns * dv.minutesPerTurn));
+}
+
 /**
  * 敵ビルドを difficulty で線形スケール生成（MVP は物理グラント1型・決定論＝index 依存）。
  * 敵の多様化（アーキタイプ混在）は launch 後の live-ops（企画書9章）で拡張。
@@ -93,7 +99,6 @@ export function dive(
   const rng = new Rng(seed);
   const mhp = maxHP(hero.stats.vit);
   const mmp = maxMP(hero.stats.mag);
-  const perBattle = CONFIG.dive.minutesPerBattle;
 
   let hp = Math.min(mhp, Math.max(0, opts.startHp ?? mhp));
   let mp = Math.min(mmp, Math.max(0, opts.startMp ?? mmp));
@@ -106,7 +111,7 @@ export function dive(
   const drops: string[] = [];
 
   // 指定時間内で、体力が残る限り連戦（企画書3.3.1）
-  while (elapsed + perBattle <= minutes && hp > 0) {
+  while (elapsed < minutes && hp > 0) {
     const enemy = makeEnemy(dungeon, index);
     const battleSeed = rng.int(1, 2 ** 31);
     const result = battle({
@@ -114,7 +119,8 @@ export function dive(
       teamB: [{ id: enemy.characterId, side: 'B', build: enemy }],
       seed: battleSeed,
     });
-    elapsed += perBattle;
+    // 1戦の所要時間 ＝ 戦闘の長引き具合（turns）から算出。弱い敵ほど短く、強敵ほど長い。
+    elapsed += battleMinutes(result.turns);
 
     // HP/MP を次戦へ持ち越す（体力ループ）
     const heroEnd = result.endState.find((s) => s.side === 'A')!;

@@ -83,7 +83,11 @@ export const CONFIG = {
 
   // ── 派遣ダンジョン（M5・企画書3.3.1）※すべて仮値。報酬レート/敵強度は M5 バランスで実測調整
   dive: {
-    minutesPerBattle: 3, // 1戦の所要（分）＝「指定時間まで連戦」の刻み
+    // 1戦の所要時間は戦闘の長引き具合（BattleResult.turns＝行動発生回数）で決まる。
+    // 弱い敵＝即決着で短く、強い敵・接戦＝長い。turns→分に線形換算し、上下限でクランプ。※仮値
+    minutesPerTurn: 0.4, // 1行動あたりの所要（分）
+    minMinutesPerBattle: 1, // 一瞬で倒しても最低これだけかかる
+    maxMinutesPerBattle: 8, // 膠着（maxTurns=200）でも青天井にしない上限
     // 報酬（勝利ごと・difficulty 倍。時間投資に比例＝企画書3.3「日次上限なし」）
     xpPerWinBase: 10,
     goldPerWinBase: 5,

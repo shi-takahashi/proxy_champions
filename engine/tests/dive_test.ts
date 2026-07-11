@@ -114,7 +114,7 @@ Deno.test('報酬: totalXp/gold/drops は明細の合計と一致・勝利のみ
 });
 
 // ── 5. 終了条件: time / ko の不変条件 ───────────────────────────
-Deno.test('終了条件: ko⇔HP0・time⇔HP>0、時間は指定内、刻みは一定', () => {
+Deno.test('終了条件: ko⇔HP0・time⇔HP>0、時間は指定内、刻みは戦闘長依存', () => {
   // 弱い hero を高難度へ → いつか強制帰還
   const weak = makeBuild('weak', { vit: 8, mag: 2, pow: 8, spd: 8, men: 4 }, {}, { weapon: 'dagger' });
   const hard: DungeonDef = { slug: 'hard', difficulty: 6, dropTable: [] };
@@ -133,9 +133,20 @@ Deno.test('終了条件: ko⇔HP0・time⇔HP>0、時間は指定内、刻みは
   const t = dive(tank, easy, 3, 30);
   assertEquals(t.endReason, 'time', '強者×低難度は時間切れ');
   assert(t.hpRemaining > 0, 'time なら HP は残る');
-  assert(t.minutesElapsed <= 30, '指定時間を超えない');
+  // 最後の1戦は時間内に開始して超過し得るが、超過は高々1戦ぶん。
+  assert(
+    t.minutesElapsed < 30 + CONFIG.dive.maxMinutesPerBattle,
+    '指定時間の超過は最後の1戦ぶんまで',
+  );
+  // 刻みは戦闘の長さ（turns）依存で可変。各戦の増分が上下限クランプ内かを検証。
+  let prev = 0;
   for (let i = 0; i < t.battles.length; i++) {
-    assertEquals(t.battles[i].minutesElapsed, (i + 1) * 3, '刻みは minutesPerBattle 一定');
+    const step = t.battles[i].minutesElapsed - prev;
+    assert(
+      step >= CONFIG.dive.minMinutesPerBattle - 1e-9 && step <= CONFIG.dive.maxMinutesPerBattle + 1e-9,
+      `1戦の所要は[min,max]内（step=${step}）`,
+    );
+    prev = t.battles[i].minutesElapsed;
   }
 });
 
