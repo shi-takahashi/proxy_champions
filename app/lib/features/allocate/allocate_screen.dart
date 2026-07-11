@@ -143,8 +143,8 @@ class _AllocateScreenState extends State<AllocateScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    'リスペック（振り直し）: $respecFee G 消費  /  所持 $_gold G'
-                    '${canAfford ? '' : ' … ゴールド不足'}',
+                    'リスペック（振り直し）: $respecFee コイン 消費  /  所持 $_gold コイン'
+                    '${canAfford ? '' : ' … コインが足りない'}',
                     style: TextStyle(
                         fontSize: 12, color: canAfford ? Colors.orangeAccent : Colors.red),
                   ),

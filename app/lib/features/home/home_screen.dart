@@ -124,7 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('戦った回数: ${r.battles} 戦'),
             Text('獲得経験値: +${r.xpGained}'),
             if (r.leveledUp > 0) Text('レベルアップ: Lv${r.level}（+${r.leveledUp}）'),
-            Text('獲得ゴールド: +${r.goldGained} G'),
+            Text('獲得コイン: +${r.goldGained}'),
             Text('ドロップ: ${r.drops.isEmpty ? 'なし' : r.drops.join(', ')}'),
             Text('残り体力: ${r.hpRemaining}${mhp != null ? ' / $mhp' : ''}'),
           ],
@@ -258,7 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 20),
               Row(
                 children: [
-                  _chip(Icons.monetization_on, '${p.gold} G'),
+                  _chip(Icons.monetization_on, '${p.gold} コイン'),
                   const SizedBox(width: 12),
                   _chip(Icons.local_drink, '回復薬 ${p.potions}'),
                 ],

@@ -190,7 +190,7 @@ class BattleApi {
     final userId = _c.auth.currentUser!.id;
     final p = await _c.from('players').select('gold').eq('id', userId).single();
     final gold = (p['gold'] as num).toInt();
-    if (gold < cost) throw Exception('ゴールド不足（必要 $cost / 所持 $gold）');
+    if (gold < cost) throw Exception('コインが足りない（必要 $cost / 所持 $gold）');
     await _c.from('players').update({'gold': gold - cost}).eq('id', userId);
     await saveAllocation(characterId, stats, lines);
   }
