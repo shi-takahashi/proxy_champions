@@ -170,7 +170,7 @@ class _DispatchScreenState extends State<DispatchScreen> {
         ),
         const SizedBox(height: 20),
         _row('戦った回数', '${r.battles} 戦'),
-        _row('獲得XP', '+${r.xpGained}'),
+        _row('獲得経験値', '+${r.xpGained}'),
         if (r.leveledUp > 0) _row('レベルアップ', 'Lv${r.level} へ（+${r.leveledUp}）', highlight: true),
         _row('獲得ゴールド', '+${r.goldGained} G'),
         _row('ドロップ', r.drops.isEmpty ? 'なし' : r.drops.join(', ')),

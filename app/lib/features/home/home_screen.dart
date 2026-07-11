@@ -122,7 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('戦った回数: ${r.battles} 戦'),
-            Text('獲得XP: +${r.xpGained}'),
+            Text('獲得経験値: +${r.xpGained}'),
             if (r.leveledUp > 0) Text('レベルアップ: Lv${r.level}（+${r.leveledUp}）'),
             Text('獲得ゴールド: +${r.goldGained} G'),
             Text('ドロップ: ${r.drops.isEmpty ? 'なし' : r.drops.join(', ')}'),
@@ -252,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
-              _bar('XP', xp.intoLevel, xp.toNext, Colors.amber, '次のLvまであとXP ${xp.toNext - xp.intoLevel}'),
+              _bar('経験値', xp.intoLevel, xp.toNext, Colors.amber, '次のLvまであと ${xp.toNext - xp.intoLevel}'),
               const SizedBox(height: 14),
               _bar('体力', hp, mhp, resting ? Colors.grey : Colors.redAccent, hpNote),
               const SizedBox(height: 20),
