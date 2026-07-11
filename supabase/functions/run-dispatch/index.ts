@@ -240,7 +240,7 @@ function simulateDispatch(
   const seed = Math.floor(Math.random() * 0x7fffffff);
   const result = dive(toBuild(row), dungeon.def, seed, minutes, { startHp });
   const prog = gainXp(row.xp, result.totalXp);
-  const endsAt = now + result.minutesElapsed * 60000;
+  const endsAt = now + minutes * 60000; // 指定した派遣時間ぶん留守にする（早期KOでも帰還は指定時刻）
 
   return {
     startHp,
