@@ -10,10 +10,12 @@
  *        → 帰還予定時刻を過ぎていれば、退避した結果を確定して受け取る（XP/ゴールド/体力/ドロップを反映）。
  *          ・xp→level は engine growth(gainXp) が正本（level 列を materialize）
  *          ・体力ループ: 帰還時 hpRemaining を current_hp に保存（次の派遣へ持ち越す）
+ *          ・ドロップは kind で振り分け（equipment→player_equipment / item→player_items）
  *     { action: 'dispatch_instant', characterId, dungeonId, minutes }   ★デバッグ用
  *        → 旧挙動: 押した瞬間に全連戦を解決して即座に報酬まで反映（動作確認を速くするため温存）。
- *     { action: 'use_potion', characterId }
- *        → 回復薬を1つ消費して体力を満タンに（players.potions を減算）
+ *     { action: 'use_item', characterId, itemId }
+ *        → 所持アイテム（回復薬）を1つ消費。engine ITEMS の効果（hp/mp/both × 割合）で回復し
+ *          player_items の quantity を減算（0 になったら行を削除）。
  *     { action: 'status', characterId }
  *        → 実効体力（自然回復込み）＋回復ETA、および派遣中かどうか/帰還までの残り分を返す（ホーム表示用）
  *
@@ -23,8 +25,8 @@
  */
 import { dive, staminaRecover } from '../_engine/dive.ts';
 import { gainXp } from '../_engine/growth.ts';
-import { CONFIG, maxHP, maxMP } from '../_engine/formulas.ts';
-import type { CharacterBuild, DiveResult, DungeonDef } from '../_engine/schema.ts';
+import { CONFIG, ITEMS, maxHP, maxMP } from '../_engine/formulas.ts';
+import type { CharacterBuild, DiveResult, DropRef, DungeonDef } from '../_engine/schema.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -138,16 +140,47 @@ async function fetchDungeon(
     name: string;
     slug: string;
     difficulty: number;
-    drop_table: { equipment_id: string; weight: number }[];
+    // 新形式: { kind, id, weight }。旧形式 { equipment_id, weight } も一応受ける（移行前データ保険）。
+    drop_table: { kind?: string; id?: string; equipment_id?: string; weight: number }[];
   };
   return {
     name: drow.name,
     def: {
       slug: drow.slug,
       difficulty: drow.difficulty,
-      dropTable: (drow.drop_table ?? []).map((e) => ({ equipmentId: e.equipment_id, weight: e.weight })),
+      dropTable: (drow.drop_table ?? []).map((e) => ({
+        kind: (e.kind ?? 'equipment') as 'equipment' | 'item',
+        id: e.id ?? e.equipment_id ?? '',
+        weight: e.weight,
+      })),
     },
   };
+}
+
+/** プレイヤーに消耗アイテムを count 個付与（player_items.quantity を read-modify-write で加算）。 */
+async function grantItem(playerId: string, itemId: string, count: number): Promise<void> {
+  const getRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/player_items?player_id=eq.${playerId}&item_id=eq.${itemId}&select=quantity`,
+    { headers: svcHeaders() },
+  );
+  const rows = await getRes.json();
+  const existing = Array.isArray(rows) && rows.length > 0 ? Number(rows[0].quantity) : null;
+  if (existing === null) {
+    await fetch(`${SUPABASE_URL}/rest/v1/player_items`, {
+      method: 'POST',
+      headers: svcHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify({ player_id: playerId, item_id: itemId, quantity: count }),
+    });
+  } else {
+    await fetch(
+      `${SUPABASE_URL}/rest/v1/player_items?player_id=eq.${playerId}&item_id=eq.${itemId}`,
+      {
+        method: 'PATCH',
+        headers: svcHeaders({ Prefer: 'return=minimal' }),
+        body: JSON.stringify({ quantity: existing + count }),
+      },
+    );
+  }
 }
 
 /** dive の帰結を DB に反映（char 更新＋ゴールド＋ドロップ＋履歴）。dispatch_* もここでクリアする。 */
@@ -187,12 +220,23 @@ async function applyRewards(
     });
   }
 
-  for (const equipmentId of r.drops) {
+  // ドロップを kind で振り分け（装備＝所持有無 / アイテム＝個数）。
+  const equipDrops = r.drops.filter((d) => d.kind === 'equipment');
+  const itemDrops = r.drops.filter((d) => d.kind === 'item');
+
+  for (const d of equipDrops) {
     await fetch(`${SUPABASE_URL}/rest/v1/player_equipment`, {
       method: 'POST',
       headers: svcHeaders({ Prefer: 'resolution=ignore-duplicates,return=minimal' }),
-      body: JSON.stringify({ player_id: row.player_id, equipment_id: equipmentId }),
+      body: JSON.stringify({ player_id: row.player_id, equipment_id: d.id }),
     });
+  }
+
+  // アイテムは同一 id をまとめて数量加算（player_items.quantity へ read-modify-write）。
+  const itemCounts: Record<string, number> = {};
+  for (const d of itemDrops) itemCounts[d.id] = (itemCounts[d.id] ?? 0) + 1;
+  for (const [itemId, count] of Object.entries(itemCounts)) {
+    await grantItem(row.player_id, itemId, count);
   }
 
   const dispInsert = await fetch(`${SUPABASE_URL}/rest/v1/dispatches`, {
@@ -430,36 +474,75 @@ async function handleStatus(authHeader: string, body: Record<string, unknown>): 
   });
 }
 
-async function handleUsePotion(authHeader: string, body: Record<string, unknown>): Promise<Response> {
+/**
+ * 所持アイテム（回復薬）を1つ使う。効果の正本は engine ITEMS（hp/mp/both × 割合）。
+ * 回復は「自然回復込みの実効HP/MP」から加算し、最大値で頭打ち（例: 10%薬は現在値+最大の10%）。
+ * 消費後 player_items.quantity を減算（0 なら行を削除）。
+ */
+async function handleUseItem(authHeader: string, body: Record<string, unknown>): Promise<Response> {
   const characterId = body.characterId as string | undefined;
-  if (!characterId) return json({ error: 'characterId が必要' }, 400);
+  const itemId = body.itemId as string | undefined;
+  if (!characterId || !itemId) return json({ error: 'characterId と itemId が必要' }, 400);
+
+  const def = ITEMS[itemId];
+  if (!def) return json({ error: `未知のアイテム: ${itemId}` }, 400);
 
   const row = await readOwnedCharacter(authHeader, characterId);
   if (!row) return json({ error: 'character not found or not owned' }, 404);
+  if (row.dispatch_ends_at) return json({ error: '派遣中は使えない（帰還を待つ）' }, 409);
 
   // 所持数を service_role で確認
-  const pRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}&select=potions`,
+  const iRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/player_items?player_id=eq.${row.player_id}&item_id=eq.${itemId}&select=quantity`,
     { headers: svcHeaders() },
   );
-  const potions = Number((await pRes.json())?.[0]?.potions ?? 0);
-  if (potions <= 0) return json({ error: '回復薬を持っていない' }, 409);
+  const iRows = await iRes.json();
+  const quantity = Array.isArray(iRows) && iRows.length > 0 ? Number(iRows[0].quantity) : 0;
+  if (quantity <= 0) return json({ error: 'そのアイテムを持っていない' }, 409);
 
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
   const maxHp = maxHP(row.stats.vit);
-  const nowIso = new Date().toISOString();
+  const maxMp = maxMP(row.stats.mag);
+
+  // 実効値（自然回復込み）から加算。HP/MP それぞれ触った側だけ回復クロック(now)を打ち直す。
+  const patch: Record<string, unknown> = {};
+  let newHp = effectiveHp(row, maxHp, now);
+  let newMp = effectiveMp(row, maxMp, now);
+  if (def.effect.kind === 'hp' || def.effect.kind === 'both') {
+    newHp = Math.min(maxHp, newHp + Math.floor(maxHp * def.effect.pct));
+    patch.current_hp = newHp;
+    patch.hp_updated_at = nowIso;
+  }
+  if (def.effect.kind === 'mp' || def.effect.kind === 'both') {
+    newMp = Math.min(maxMp, newMp + Math.floor(maxMp * def.effect.pct));
+    patch.current_mp = newMp;
+    patch.mp_updated_at = nowIso;
+  }
 
   await fetch(`${SUPABASE_URL}/rest/v1/characters?id=eq.${characterId}`, {
     method: 'PATCH',
     headers: svcHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({ current_hp: maxHp, hp_updated_at: nowIso }),
-  });
-  await fetch(`${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}`, {
-    method: 'PATCH',
-    headers: svcHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({ potions: potions - 1 }),
+    body: JSON.stringify(patch),
   });
 
-  return json({ healedTo: maxHp, potionsLeft: potions - 1 });
+  // 数量を減算（0 になったら行を削除＝インベントリを綺麗に保つ）。
+  const left = quantity - 1;
+  const itemFilter = `player_id=eq.${row.player_id}&item_id=eq.${itemId}`;
+  if (left <= 0) {
+    await fetch(`${SUPABASE_URL}/rest/v1/player_items?${itemFilter}`, {
+      method: 'DELETE',
+      headers: svcHeaders({ Prefer: 'return=minimal' }),
+    });
+  } else {
+    await fetch(`${SUPABASE_URL}/rest/v1/player_items?${itemFilter}`, {
+      method: 'PATCH',
+      headers: svcHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify({ quantity: left }),
+    });
+  }
+
+  return json({ itemId, hp: newHp, maxHp, mp: newMp, maxMp, quantityLeft: left });
 }
 
 Deno.serve(async (req) => {
@@ -483,13 +566,13 @@ Deno.serve(async (req) => {
       return await handleDispatchInstant(authHeader, body);
     case 'collect':
       return await handleCollect(authHeader, body);
-    case 'use_potion':
-      return await handleUsePotion(authHeader, body);
+    case 'use_item':
+      return await handleUseItem(authHeader, body);
     case 'status':
       return await handleStatus(authHeader, body);
     default:
       return json({
-        error: "action は 'dispatch' | 'dispatch_instant' | 'collect' | 'use_potion' | 'status'",
+        error: "action は 'dispatch' | 'dispatch_instant' | 'collect' | 'use_item' | 'status'",
       }, 400);
   }
 });

@@ -6,7 +6,7 @@
  *   4. characters 読み戻し: xp↑・level は gainXp と一致・current_hp が保存されている（体力ループ）
  *   5. players 読み戻し: gold↑
  *   6. dispatches 読み戻し: 自分の派遣履歴が見える（DiveResult 保存）
- *   7. 回復薬: service_role で potions=1 付与 → use_potion → 満タン回復・potions 減算
+ *   7. アイテム: service_role で HP回復薬（大）=1 付与 → use_item → 満タン回復・quantity 減算
  *   8. RLS: 2人目の匿名ユーザーからは 1人目の dispatches が見えない
  *
  * 実行（supabase start ＋ functions serve run-dispatch が動いている前提）:
@@ -117,7 +117,7 @@ const disp = await invoke(token, { action: 'dispatch', characterId, dungeonId, m
 assert(disp.ok, `dispatch 失敗: ${disp.status} ${JSON.stringify(disp.json)}`);
 const d = disp.json;
 console.log(
-  `   ok ${d.battles}戦 [${d.endReason}] +${d.xpGained}xp +${d.goldGained}g Lv${d.level}(↑${d.leveledUp}) 残HP${d.hpRemaining}/${maxHp} drops:[${d.drops.join(',')}]`,
+  `   ok ${d.battles}戦 [${d.endReason}] +${d.xpGained}xp +${d.goldGained}g Lv${d.level}(↑${d.leveledUp}) 残HP${d.hpRemaining}/${maxHp} drops:[${(d.drops ?? []).map((x: { id: string }) => x.id).join(',')}]`,
 );
 assert(d.xpGained > 0, '派遣で XP を得ている');
 assert(d.goldGained > 0, '派遣でゴールドを得ている');
@@ -144,25 +144,25 @@ assert(disps[0].result?.battles?.length === d.battles, 'result(DiveResult) の b
 assert(disps[0].end_reason === d.endReason, 'end_reason 一致');
 console.log(`   ok 履歴1件 seed=${disps[0].seed} result.battles=${disps[0].result.battles.length}`);
 
-console.log('▶ 7. 回復薬: service_role で potions=1 付与 → use_potion で満タン回復');
-const grant = await fetch(`${URL}/rest/v1/players?id=eq.${userId}`, {
-  method: 'PATCH',
+console.log('▶ 7. アイテム: service_role で HP回復薬（大）=1 付与 → use_item で満タン回復');
+const grant = await fetch(`${URL}/rest/v1/player_items`, {
+  method: 'POST',
   headers: {
     apikey: SERVICE!,
     Authorization: `Bearer ${SERVICE!}`,
     'Content-Type': 'application/json',
     Prefer: 'return=minimal',
   },
-  body: JSON.stringify({ potions: 1 }),
+  body: JSON.stringify({ player_id: userId, item_id: 'potion_hp_full', quantity: 1 }),
 });
-assert(grant.ok, `potions 付与失敗: ${grant.status}`);
-const pot = await invoke(token, { action: 'use_potion', characterId });
-assert(pot.ok, `use_potion 失敗: ${pot.status} ${JSON.stringify(pot.json)}`);
-assert(pot.json.healedTo === maxHp, `満タン回復でない: ${pot.json.healedTo} != ${maxHp}`);
-assert(pot.json.potionsLeft === 0, `potions 減算されていない: ${pot.json.potionsLeft}`);
+assert(grant.ok, `アイテム付与失敗: ${grant.status}`);
+const pot = await invoke(token, { action: 'use_item', characterId, itemId: 'potion_hp_full' });
+assert(pot.ok, `use_item 失敗: ${pot.status} ${JSON.stringify(pot.json)}`);
+assert(pot.json.hp === maxHp, `満タン回復でない: ${pot.json.hp} != ${maxHp}`);
+assert(pot.json.quantityLeft === 0, `quantity 減算されていない: ${pot.json.quantityLeft}`);
 const afterPot = await readOne(token, `characters?id=eq.${characterId}&select=current_hp`);
 assert(afterPot[0].current_hp === maxHp, `current_hp が満タンでない: ${afterPot[0].current_hp}`);
-console.log(`   ok 回復薬使用 → current_hp=${afterPot[0].current_hp} potionsLeft=${pot.json.potionsLeft}`);
+console.log(`   ok アイテム使用 → current_hp=${afterPot[0].current_hp} quantityLeft=${pot.json.quantityLeft}`);
 
 console.log('▶ 8. RLS: 2人目からは1人目の dispatches が見えない');
 const { token: token2 } = await signInAnonymously();

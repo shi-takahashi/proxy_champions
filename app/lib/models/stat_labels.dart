@@ -36,3 +36,31 @@ const Map<String, String> equipmentNames = {
 
 /// 装備ID → 日本語名（未知IDはそのまま返す）。
 String equipmentName(String id) => equipmentNames[id] ?? id;
+
+/// アイテムID → 日本語名。DB の item_catalog.name（seed）のミラー。
+/// ★アイテムを増やしたら DB seed（items マイグレーション）と engine ITEMS とここを揃えること。
+const Map<String, String> itemNames = {
+  'potion_hp_small': 'HP回復薬（小）',
+  'potion_hp_full': 'HP回復薬（大）',
+  'potion_mp_small': 'MP回復薬（小）',
+  'potion_mp_full': 'MP回復薬（大）',
+  'elixir': 'エリクサー',
+};
+
+/// アイテムID → 日本語名（未知IDはそのまま返す）。
+String itemName(String id) => itemNames[id] ?? id;
+
+/// ドロップ（装備 or アイテム）の表示名。kind で名前解決先を切り替える。
+String dropName(String kind, String id) =>
+    kind == 'item' ? itemName(id) : equipmentName(id);
+
+/// アイテム効果の説明文（例: 「HPを10%回復」「HP・MPを全回復」）。所持一覧・ボタンで使う。
+String itemEffectText(String effectKind, double effectPct) {
+  final target = switch (effectKind) {
+    'hp' => 'HP',
+    'mp' => 'MP',
+    _ => 'HP・MP',
+  };
+  final amount = effectPct >= 1.0 ? '全回復' : '${(effectPct * 100).round()}%回復';
+  return '$targetを$amount';
+}

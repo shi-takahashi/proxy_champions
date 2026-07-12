@@ -40,8 +40,9 @@ const dungeon: DungeonDef = {
   slug: 'novice_field',
   difficulty: 2,
   dropTable: [
-    { equipmentId: 'dagger', weight: 5 },
-    { equipmentId: 'mail_leather', weight: 5 },
+    { kind: 'equipment', id: 'dagger', weight: 5 },
+    { kind: 'equipment', id: 'mail_leather', weight: 5 },
+    { kind: 'item', id: 'potion_hp_small', weight: 4 },
   ],
 };
 

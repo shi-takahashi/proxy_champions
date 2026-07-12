@@ -101,15 +101,29 @@ class BattleApi {
     return CharacterStatus.fromJson(data);
   }
 
-  /// プレイヤー資源（ゴールド・回復薬）。
+  /// プレイヤー資源（ゴールド）。
   Future<PlayerState> fetchPlayerState() async {
     final userId = _c.auth.currentUser!.id;
     final row = await _c
         .from('players')
-        .select('gold, potions')
+        .select('gold')
         .eq('id', userId)
         .single();
     return PlayerState.fromRow(row);
+  }
+
+  /// 所持アイテム一覧（player_items ＋ item_catalog を埋め込み）。数量>0 のみ・種別順。
+  Future<List<InventoryItem>> fetchInventory() async {
+    final userId = _c.auth.currentUser!.id;
+    final rows = await _c
+        .from('player_items')
+        .select('quantity, item_catalog(id, name, effect_kind, effect_pct)')
+        .eq('player_id', userId)
+        .gt('quantity', 0)
+        .order('item_id');
+    return (rows as List)
+        .map((e) => InventoryItem.fromRow(e as Map<String, dynamic>))
+        .toList();
   }
 
   /// 派遣先ダンジョン一覧（共有コンテンツ）。
@@ -152,13 +166,15 @@ class BattleApi {
     return DispatchResult.fromJson(data);
   }
 
-  /// 回復薬を使う（run-dispatch: use_potion）。体力を満タンに・potions 減算。残り回復薬数を返す。
-  Future<int> usePotion(String characterId) async {
-    final data = await _invokeDispatch('回復薬', {
-      'action': 'use_potion',
+  /// アイテム（回復薬）を使う（run-dispatch: use_item）。効果(hp/mp/both×割合)で回復し数量を減算。
+  /// 使用後の残り個数を返す。
+  Future<int> useItem(String characterId, String itemId) async {
+    final data = await _invokeDispatch('アイテム使用', {
+      'action': 'use_item',
       'characterId': characterId,
+      'itemId': itemId,
     });
-    return data['potionsLeft'] as int;
+    return (data['quantityLeft'] as num).toInt();
   }
 
   /// run-dispatch 呼び出しの共通処理（4xx はサーバーの error 文言を拾って投げ直す）。

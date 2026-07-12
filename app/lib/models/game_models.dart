@@ -96,13 +96,39 @@ class CharacterStatus {
 /// プレイヤー資源（= players 行）。
 class PlayerState {
   final int gold;
-  final int potions;
-  const PlayerState({required this.gold, required this.potions});
+  const PlayerState({required this.gold});
 
   factory PlayerState.fromRow(Map<String, dynamic> r) => PlayerState(
         gold: (r['gold'] as num).toInt(),
-        potions: r['potions'] as int,
       );
+}
+
+/// 所持アイテム1種（= player_items 行 + 埋め込み item_catalog）。消耗品なので個数(quantity)を持つ。
+class InventoryItem {
+  final String id;
+  final String name;
+  final String effectKind; // 'hp' | 'mp' | 'both'
+  final double effectPct; // 最大値に対する回復割合（0.10=10% / 1.0=全回復）
+  final int quantity;
+
+  const InventoryItem({
+    required this.id,
+    required this.name,
+    required this.effectKind,
+    required this.effectPct,
+    required this.quantity,
+  });
+
+  factory InventoryItem.fromRow(Map<String, dynamic> r) {
+    final cat = r['item_catalog'] as Map<String, dynamic>; // PostgREST 埋め込み
+    return InventoryItem(
+      id: cat['id'] as String,
+      name: cat['name'] as String,
+      effectKind: cat['effect_kind'] as String,
+      effectPct: (cat['effect_pct'] as num).toDouble(),
+      quantity: (r['quantity'] as num).toInt(),
+    );
+  }
 }
 
 /// 派遣先ダンジョン（= dungeons 行・共有コンテンツ）。
@@ -133,6 +159,16 @@ class Dungeon {
       );
 }
 
+/// ドロップ1件（装備 or アイテム）。kind で入手先が分かる（表示名は stat_labels.dropName）。
+class DropRef {
+  final String kind; // 'equipment' | 'item'
+  final String id;
+  const DropRef({required this.kind, required this.id});
+
+  factory DropRef.fromJson(Map<String, dynamic> j) =>
+      DropRef(kind: j['kind'] as String, id: j['id'] as String);
+}
+
 /// run-dispatch(dispatch) の帰還サマリ。
 class DispatchResult {
   final String dispatchId;
@@ -140,7 +176,7 @@ class DispatchResult {
   final String endReason; // 'time' | 'ko'
   final int xpGained;
   final int goldGained;
-  final List<String> drops;
+  final List<DropRef> drops; // 装備・アイテムのドロップ（タグ付き）
   final int level;
   final int leveledUp;
   final int hpRemaining;
@@ -169,7 +205,9 @@ class DispatchResult {
         endReason: j['endReason'] as String,
         xpGained: (j['xpGained'] as num).toInt(),
         goldGained: (j['goldGained'] as num).toInt(),
-        drops: (j['drops'] as List).map((e) => e as String).toList(),
+        drops: (j['drops'] as List)
+            .map((e) => DropRef.fromJson(e as Map<String, dynamic>))
+            .toList(),
         level: j['level'] as int,
         leveledUp: j['leveledUp'] as int,
         hpRemaining: j['hpRemaining'] as int,

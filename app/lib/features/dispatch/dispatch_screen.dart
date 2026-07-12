@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/game_models.dart';
+import '../../models/stat_labels.dart';
 import '../../services/battle_api.dart';
 
 /// M5.4: 派遣ダンジョン（ダンジョン + 潜航時間 → run-dispatch → 帰還サマリ）。
@@ -174,7 +175,7 @@ class _DispatchScreenState extends State<DispatchScreen> {
         _row('獲得経験値', '+${r.xpGained}'),
         if (r.leveledUp > 0) _row('レベルアップ', 'Lv${r.level} へ（+${r.leveledUp}）', highlight: true),
         _row('獲得コイン', '+${r.goldGained}'),
-        _row('ドロップ', r.drops.isEmpty ? 'なし' : r.drops.join(', ')),
+        _row('ドロップ', r.drops.isEmpty ? 'なし' : r.drops.map((d) => dropName(d.kind, d.id)).join(', ')),
         _row('残りHP', '${r.hpRemaining} / $mhp'),
         _row('残りMP', '${r.mpRemaining} / $mmp'),
         const SizedBox(height: 28),

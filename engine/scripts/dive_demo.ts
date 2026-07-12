@@ -13,8 +13,9 @@ const dungeon: DungeonDef = {
   slug: 'novice_field',
   difficulty: 2,
   dropTable: [
-    { equipmentId: 'dagger', weight: 5 },
-    { equipmentId: 'mail_leather', weight: 5 },
+    { kind: 'equipment', id: 'dagger', weight: 5 },
+    { kind: 'equipment', id: 'mail_leather', weight: 5 },
+    { kind: 'item', id: 'potion_hp_small', weight: 4 },
   ],
 };
 
@@ -43,12 +44,12 @@ for (const [name, hero] of Object.entries(builds)) {
   console.log(`\n=== ${name}  (HP${maxHP(hero.stats.vit)}/MP${maxMP(hero.stats.mag)}) → ${dungeon.slug} diff${dungeon.difficulty} / ${minutes}分 ===`);
   for (const b of r.battles) {
     const tag = b.won ? '○勝' : b.winner === 'draw' ? '△分' : '●敗';
-    const drop = b.drop ? `  drop:${b.drop}` : '';
+    const drop = b.drop ? `  drop:${b.drop.kind}/${b.drop.id}` : '';
     console.log(
       `  #${String(b.index).padStart(2)} ${tag}  +${b.xp}xp +${b.gold}g  HP:${b.hpAfter} MP:${b.mpAfter}  (${b.minutesElapsed}分)${drop}`,
     );
   }
   console.log(
-    `  → 帰還[${r.endReason}]  ${r.battles.length}戦  計 ${r.totalXp}xp / ${r.totalGold}g  drops:[${r.drops.join(',')}]  残HP${r.hpRemaining}/MP${r.mpRemaining}`,
+    `  → 帰還[${r.endReason}]  ${r.battles.length}戦  計 ${r.totalXp}xp / ${r.totalGold}g  drops:[${r.drops.map((d) => d.id).join(',')}]  残HP${r.hpRemaining}/MP${r.mpRemaining}`,
   );
 }

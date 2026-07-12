@@ -18,6 +18,7 @@ import type {
   DiveBattleSummary,
   DiveEndReason,
   DiveResult,
+  DropRef,
   DungeonDef,
 } from './schema.ts';
 import { battle } from './battle.ts';
@@ -54,18 +55,22 @@ function makeEnemy(dungeon: DungeonDef, index: number): CharacterBuild {
   };
 }
 
-/** ドロップ抽選（勝利ごと・重み付き・決定論）。ハズレは null。 */
-function rollDrop(dungeon: DungeonDef, rng: Rng): string | null {
+/** ドロップ抽選（勝利ごと・重み付き・決定論）。装備/アイテムのタグ付き参照を返す。ハズレは null。 */
+function rollDrop(dungeon: DungeonDef, rng: Rng): DropRef | null {
   if (!rng.chance(CONFIG.dive.dropChancePerWin)) return null;
   const table = dungeon.dropTable;
   const total = table.reduce((s, e) => s + e.weight, 0);
   if (total <= 0) return null;
   let r = rng.next() * total;
+  let picked = table[table.length - 1];
   for (const e of table) {
     r -= e.weight;
-    if (r < 0) return e.equipmentId;
+    if (r < 0) {
+      picked = e;
+      break;
+    }
   }
-  return table[table.length - 1].equipmentId;
+  return { kind: picked.kind, id: picked.id };
 }
 
 export interface DiveOptions {
@@ -108,7 +113,7 @@ export function dive(
   let totalGold = 0;
   let endReason: DiveEndReason = 'time';
   const battles: DiveBattleSummary[] = [];
-  const drops: string[] = [];
+  const drops: DropRef[] = [];
 
   // 指定時間内で、体力が残る限り連戦（企画書3.3.1）
   while (elapsed < minutes && hp > 0) {
@@ -130,7 +135,7 @@ export function dive(
     const won = result.winner === 'A';
     let xp = 0;
     let gold = 0;
-    let drop: string | null = null;
+    let drop: DropRef | null = null;
     if (won) {
       xp = CONFIG.dive.xpPerWinBase * dungeon.difficulty;
       gold = CONFIG.dive.goldPerWinBase * dungeon.difficulty;

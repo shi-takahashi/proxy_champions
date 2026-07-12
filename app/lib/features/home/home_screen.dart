@@ -24,6 +24,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   Character? _char;
   PlayerState? _player;
+  List<InventoryItem> _inventory = const []; // 所持アイテム（回復薬）
   CharacterStatus? _status; // 実効体力＋派遣状態（サーバー算出）。取得失敗時は null → 保存値にフォールバック。
   bool _loading = true;
   bool _busy = false;
@@ -50,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       var char = await widget.api.fetchMyCharacter();
       var player = await widget.api.fetchPlayerState();
+      var inventory = await widget.api.fetchInventory();
       CharacterStatus? status;
       DispatchResult? collected;
       if (char != null) {
@@ -60,6 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
             collected = await widget.api.collectDispatch(char.id);
             char = await widget.api.fetchMyCharacter();
             player = await widget.api.fetchPlayerState();
+            inventory = await widget.api.fetchInventory();
             status = await widget.api.fetchStatus(char!.id);
           }
         } catch (_) {
@@ -70,6 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _char = char;
         _player = player;
+        _inventory = inventory;
         _status = status;
         _loading = false;
       });
@@ -120,7 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(r.returnedByKo ? '⚔ 力尽きて強制帰還' : '🏁 派遣から帰還'),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('戦った回数: ${r.battles} 戦'), Text('獲得経験値: +${r.xpGained}'), if (r.leveledUp > 0) Text('レベルアップ: Lv${r.level}（+${r.leveledUp}）'), Text('獲得コイン: +${r.goldGained}'), Text('ドロップ: ${r.drops.isEmpty ? 'なし' : r.drops.join(', ')}'), Text('残りHP: ${r.hpRemaining}${mhp != null ? ' / $mhp' : ''}'), Text('残りMP: ${r.mpRemaining}${mmp != null ? ' / $mmp' : ''}')]),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('戦った回数: ${r.battles} 戦'), Text('獲得経験値: +${r.xpGained}'), if (r.leveledUp > 0) Text('レベルアップ: Lv${r.level}（+${r.leveledUp}）'), Text('獲得コイン: +${r.goldGained}'), Text('ドロップ: ${r.drops.isEmpty ? 'なし' : r.drops.map((d) => dropName(d.kind, d.id)).join(', ')}'), Text('残りHP: ${r.hpRemaining}${mhp != null ? ' / $mhp' : ''}'), Text('残りMP: ${r.mpRemaining}${mmp != null ? ' / $mmp' : ''}')]),
         actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
       ),
     );
@@ -148,10 +152,10 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => TournamentScreen(api: widget.api)));
   }
 
-  Future<void> _usePotion() async {
+  Future<void> _useItem(InventoryItem item) async {
     setState(() => _busy = true);
     try {
-      await widget.api.usePotion(_char!.id);
+      await widget.api.useItem(_char!.id, item.id);
       await _reload();
     } catch (e) {
       if (mounted) _snack('$e');
@@ -196,7 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return '力尽きている — 完全回復まで${_fmtMin(hs.minutesToFull)}（回復薬で即完全回復）';
     }
     if (hs.minutesToFull > 0) {
-      return '完全回復まで${_fmtMin(hs.minutesToFull)}（毎分 最大HPの1%回復）';
+      return '完全回復まで${_fmtMin(hs.minutesToFull)}';
     }
     return null; // 完全回復済み
   }
@@ -205,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _mpNote(CharacterStatus? hs) {
     if (hs == null || hs.dispatching) return null;
     if (hs.mpMinutesToFull > 0) {
-      return '完全回復まで${_fmtMin(hs.mpMinutesToFull)}（毎分 最大MPの1%回復）';
+      return '完全回復まで${_fmtMin(hs.mpMinutesToFull)}';
     }
     return null; // 完全回復済み
   }
@@ -268,7 +272,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 14),
               _bar('MP', mp, mmp, Colors.blueAccent, mpNote),
               const SizedBox(height: 20),
-              Row(children: [_chip(Icons.monetization_on, '${p.gold} コイン'), const SizedBox(width: 12), _chip(Icons.local_drink, '回復薬 ${p.potions}')]),
+              Row(children: [_chip(Icons.monetization_on, '${p.gold} コイン')]),
               const SizedBox(height: 8),
               _equipLine(c),
               const SizedBox(height: 12),
@@ -288,17 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: const Text('派遣する ▶'),
                 ),
               const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: (_busy || dispatching || p.potions <= 0 || hp >= mhp) ? null : _usePotion,
-                icon: const Icon(Icons.local_drink),
-                label: Text(
-                  p.potions <= 0
-                      ? '回復薬を使う'
-                      : hp >= mhp
-                      ? 'HPは満タン'
-                      : '回復薬を使う（HPを満タンに）',
-                ),
-              ),
+              _inventorySection(dispatching: dispatching, hp: hp, mhp: mhp, mp: mp, mmp: mmp),
               const SizedBox(height: 12),
               OutlinedButton.icon(onPressed: (_busy || dispatching) ? null : _openAllocate, icon: const Icon(Icons.tune), label: const Text('ステータス / 育成')),
               const SizedBox(height: 12),
@@ -336,6 +330,65 @@ class _HomeScreenState extends State<HomeScreen> {
             const Text('アプリは閉じてOK。帰還後にまた開くと結果を受け取れます。', style: TextStyle(fontSize: 11, color: Colors.white54)),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 所持アイテム（回復薬）一覧。各アイテムに「使う」ボタン（効果が無い＝満タン等なら無効）。
+  Widget _inventorySection({
+    required bool dispatching,
+    required int hp,
+    required int mhp,
+    required int mp,
+    required int mmp,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('アイテム', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        if (_inventory.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Text('所持アイテムなし（ダンジョンで入手）', style: TextStyle(fontSize: 12, color: Colors.white54)),
+          )
+        else
+          ..._inventory.map((item) => _inventoryTile(item, dispatching, hp, mhp, mp, mmp)),
+      ],
+    );
+  }
+
+  Widget _inventoryTile(InventoryItem item, bool dispatching, int hp, int mhp, int mp, int mmp) {
+    // 効果が発生する余地があるか（満タンなら無効化）。both は HP か MP のどちらかが減っていれば有効。
+    final usefulHp = hp < mhp;
+    final usefulMp = mp < mmp;
+    final useful = switch (item.effectKind) {
+      'hp' => usefulHp,
+      'mp' => usefulMp,
+      _ => usefulHp || usefulMp,
+    };
+    final enabled = !_busy && !dispatching && useful;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          const Icon(Icons.local_drink, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${item.name} ×${item.quantity}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(itemEffectText(item.effectKind, item.effectPct), style: const TextStyle(fontSize: 11, color: Colors.white54)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: enabled ? () => _useItem(item) : null,
+            child: Text(useful ? '使う' : '満タン'),
+          ),
+        ],
       ),
     );
   }

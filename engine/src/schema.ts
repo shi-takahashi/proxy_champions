@@ -72,6 +72,20 @@ export interface EquipmentLoadout {
 }
 
 // ────────────────────────────────────────────────────────────
+// アイテム（消耗品・回復薬／企画書3.3）
+//   装備と同じ「型はここ / 実データ（仮カタログ）は formulas.ts の ITEMS」。
+//   装備と違い消耗品なので、所持は個数（DB player_items.quantity）で持つ。
+//   effect.pct = 最大値に対する回復割合（0.10=10% / 1.0=全回復）。
+// ────────────────────────────────────────────────────────────
+export type ItemEffectKind = 'hp' | 'mp' | 'both'; // hp=HP回復 / mp=MP回復 / both=両方
+
+export interface ItemDef {
+  id: string;
+  name: string;
+  effect: { kind: ItemEffectKind; pct: number };
+}
+
+// ────────────────────────────────────────────────────────────
 // キャラのビルド（＝DB保存形・Flutter入力形・battle() 入力の"正本"）
 // ────────────────────────────────────────────────────────────
 export interface CharacterBuild {
@@ -142,8 +156,18 @@ export type BattleFn = (input: BattleInput) => BattleResult;
 //   ・体力0 で強制帰還（endReason='ko'）／指定時間まで戦って時間切れ（'time'）
 //   ・勝利ごとに XP/ゴールド、確率でドロップ（サーバー計算・非同期・企画書3.3.1）
 // ────────────────────────────────────────────────────────────
+// ドロップは装備・アイテム両対応のタグ付き参照（kind で入手先テーブルを振り分け）
+export type DropKind = 'equipment' | 'item';
+
+/** ドロップ1件の参照（DiveResult に載る / applyRewards が kind でテーブルを振り分ける）。 */
+export interface DropRef {
+  kind: DropKind; // equipment=player_equipment / item=player_items
+  id: string; // equipment_catalog.id または item_catalog.id
+}
+
 export interface DropEntry {
-  equipmentId: string; // WeaponDef/ArmorDef/ShieldDef の id
+  kind: DropKind; // equipment=装備ドロップ / item=アイテムドロップ
+  id: string; // WeaponDef/ArmorDef/ShieldDef の id、または ItemDef の id
   weight: number; // 重み付き抽選（相対）
 }
 
@@ -164,7 +188,7 @@ export interface DiveBattleSummary {
   enemyId: string;
   xp: number;
   gold: number;
-  drop: string | null; // ドロップした装備 id（無し=null）
+  drop: DropRef | null; // ドロップ（装備 or アイテム。無し=null）
   hpAfter: number; // この戦闘後の hero HP（次戦へ持ち越す値）
   mpAfter: number;
   minutesElapsed: number; // 派遣開始からの累計（分）
@@ -176,7 +200,7 @@ export interface DiveResult {
   battles: DiveBattleSummary[];
   totalXp: number;
   totalGold: number;
-  drops: string[];
+  drops: DropRef[]; // 装備・アイテムのドロップ（applyRewards が kind で振り分ける）
   hpRemaining: number; // 帰還時の HP（自然回復の起点）
   mpRemaining: number;
   minutesElapsed: number;

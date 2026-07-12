@@ -9,7 +9,7 @@
  *   - sleep 成功率は 魔力≈精神 周辺で急・floor/ceiling（0/100%なし）
  */
 
-import type { ArmorDef, ShieldDef, Stats, WeaponDef } from './schema.ts';
+import type { ArmorDef, ItemDef, ShieldDef, Stats, WeaponDef } from './schema.ts';
 
 export const CONFIG = {
   // ── 派生値（企画書3.5.1：HP/MP は体力/魔力から倍率で算出。基本5ステは同スケール維持）
@@ -181,4 +181,18 @@ export const ARMORS: Record<string, ArmorDef> = {
 export const SHIELDS: Record<string, ShieldDef> = {
   shield_wood: { id: 'shield_wood', name: '木の盾', physDef: 4 },
   shield_iron: { id: 'shield_iron', name: '鉄の盾', physDef: 8 },
+};
+
+// ────────────────────────────────────────────────────────────
+// アイテムカタログ（消耗品・回復薬／企画書3.3「体力を一気に回復」）
+// 効果の正本はここ（DB item_catalog はミラー）。use_item が pct から回復量を算出する。
+// effect.pct = 最大値に対する回復割合（0.10=10% / 1.0=全回復）。
+// ★ここを増やしたら DB seed（item 系マイグレーション）と Flutter の itemNames を揃えること。
+// ────────────────────────────────────────────────────────────
+export const ITEMS: Record<string, ItemDef> = {
+  potion_hp_small: { id: 'potion_hp_small', name: 'HP回復薬（小）', effect: { kind: 'hp', pct: 0.1 } },
+  potion_hp_full: { id: 'potion_hp_full', name: 'HP回復薬（大）', effect: { kind: 'hp', pct: 1.0 } },
+  potion_mp_small: { id: 'potion_mp_small', name: 'MP回復薬（小）', effect: { kind: 'mp', pct: 0.1 } },
+  potion_mp_full: { id: 'potion_mp_full', name: 'MP回復薬（大）', effect: { kind: 'mp', pct: 1.0 } },
+  elixir: { id: 'elixir', name: 'エリクサー', effect: { kind: 'both', pct: 1.0 } },
 };
