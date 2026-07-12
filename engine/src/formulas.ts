@@ -94,13 +94,8 @@ export const CONFIG = {
     dropChancePerWin: 0.15, // 勝利ごとのドロップ確率（ピティ=天井は M5.3 の永続カウンタ側）
     // 帰還後の自然回復（企画書3.3「体力は時間で自然回復」）。%最大HP/分＝ビルド非依存で回復時間一定。
     regenPctPerMinute: 0.01, // 毎分 最大HPの1%（0→満タン ≈ 100分）※仮
-    // 敵生成（difficulty で線形スケール・MVP は物理グラント1型。敵の多様化は live-ops）
-    enemyVitBase: 8,
-    enemyVitPerDiff: 3,
-    enemyPowBase: 6,
-    enemyPowPerDiff: 2,
-    enemySpdBase: 6,
-    enemySpdPerDiff: 1,
+    // ※敵は enemy_catalog（DB）＋ dungeons.encounter_table（DB）で管理（完全DB管理）。
+    //   engine は遭遇テーブルから重み付き抽選するだけで、敵ステの正本は持たない。
   },
 } as const;
 

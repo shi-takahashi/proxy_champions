@@ -61,6 +61,16 @@ interface CharacterRow {
   equipment: CharacterBuild['equipment'];
 }
 
+/** enemy_catalog 行（完全DB管理の敵マスタ。build へ組み替えて dive の遭遇表に載せる）。 */
+interface EnemyRow {
+  id: string;
+  name: string;
+  level: number;
+  stats: CharacterBuild['stats'];
+  spell_lines: CharacterBuild['spellLines'];
+  equipment: CharacterBuild['equipment'];
+}
+
 /** 派遣開始時に退避し、帰還（collect）で適用する確定データ。dive は決定論なので開始時に一度だけ回す。 */
 interface PendingDispatch {
   seed: number;
@@ -142,7 +152,36 @@ async function fetchDungeon(
     difficulty: number;
     // 新形式: { kind, id, weight }。旧形式 { equipment_id, weight } も一応受ける（移行前データ保険）。
     drop_table: { kind?: string; id?: string; equipment_id?: string; weight: number }[];
+    encounter_table: { enemy_id: string; weight: number }[];
   };
+
+  // 遭遇表の enemy_id を enemy_catalog（完全DB管理）から解決し、敵ビルドを組む。
+  const encRaw = drow.encounter_table ?? [];
+  const enemyIds = [...new Set(encRaw.map((e) => e.enemy_id))];
+  const enemyById: Record<string, EnemyRow> = {};
+  if (enemyIds.length > 0) {
+    const eRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/enemy_catalog?id=in.(${enemyIds.join(',')})&select=*`,
+      { headers: { apikey: ANON_KEY, Authorization: authHeader } },
+    );
+    const eRows = await eRes.json();
+    if (Array.isArray(eRows)) for (const r of eRows as EnemyRow[]) enemyById[r.id] = r;
+  }
+  const encounterTable = encRaw.flatMap((e) => {
+    const er = enemyById[e.enemy_id];
+    if (!er) return []; // カタログに無い id はスキップ（編成ミスで潜航全体を落とさない）
+    return [{
+      build: {
+        characterId: er.id,
+        level: er.level,
+        stats: er.stats,
+        spellLines: er.spell_lines,
+        equipment: er.equipment,
+      },
+      weight: e.weight,
+    }];
+  });
+
   return {
     name: drow.name,
     def: {
@@ -153,6 +192,7 @@ async function fetchDungeon(
         id: e.id ?? e.equipment_id ?? '',
         weight: e.weight,
       })),
+      encounterTable,
     },
   };
 }

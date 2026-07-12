@@ -34,25 +34,24 @@ function battleMinutes(turns: number): number {
 }
 
 /**
- * 敵ビルドを difficulty で線形スケール生成（MVP は物理グラント1型・決定論＝index 依存）。
- * 敵の多様化（アーキタイプ混在）は launch 後の live-ops（企画書9章）で拡張。
+ * この戦闘の敵を遭遇テーブルから重み付き抽選（決定論）。
+ * 敵の正本は DB enemy_catalog（完全DB管理）＝「どのダンジョンにどの敵がどの確率で」は
+ * dungeons.encounter_table を編集するだけで変わる（マスタ駆動）。空テーブルは null（敵なし）。
  */
-function makeEnemy(dungeon: DungeonDef, index: number): CharacterBuild {
-  const d = dungeon.difficulty;
-  const dv = CONFIG.dive;
-  return {
-    characterId: `enemy_${dungeon.slug}_${index}`,
-    level: d,
-    stats: {
-      vit: Math.round(dv.enemyVitBase + d * dv.enemyVitPerDiff),
-      mag: 2,
-      pow: Math.round(dv.enemyPowBase + d * dv.enemyPowPerDiff),
-      spd: Math.round(dv.enemySpdBase + d * dv.enemySpdPerDiff),
-      men: 4,
-    },
-    spellLines: { fire: 0, cure: 0, sleep: 0, strength: 0 },
-    equipment: { weapon: 'sword_iron', armor: 'mail_leather', shield: null },
-  };
+function pickEnemy(dungeon: DungeonDef, rng: Rng): CharacterBuild | null {
+  const table = dungeon.encounterTable;
+  const total = table.reduce((s, e) => s + e.weight, 0);
+  if (table.length === 0 || total <= 0) return null;
+  let r = rng.next() * total;
+  let picked = table[table.length - 1];
+  for (const e of table) {
+    r -= e.weight;
+    if (r < 0) {
+      picked = e;
+      break;
+    }
+  }
+  return picked.build;
 }
 
 /** ドロップ抽選（勝利ごと・重み付き・決定論）。装備/アイテムのタグ付き参照を返す。ハズレは null。 */
@@ -117,7 +116,8 @@ export function dive(
 
   // 指定時間内で、体力が残る限り連戦（企画書3.3.1）
   while (elapsed < minutes && hp > 0) {
-    const enemy = makeEnemy(dungeon, index);
+    const enemy = pickEnemy(dungeon, rng);
+    if (!enemy) break; // 遭遇テーブルが空＝敵がいない（即帰還）
     const battleSeed = rng.int(1, 2 ** 31);
     const result = battle({
       teamA: [{ id: HERO_ID, side: 'A', build: hero, startHp: hp, startMp: mp }],

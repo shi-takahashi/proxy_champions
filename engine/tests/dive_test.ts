@@ -36,6 +36,21 @@ function makeBuild(
   };
 }
 
+// 敵は enemy_catalog（DB）駆動になったので、テストでは明示ビルドで遭遇テーブルを組む。
+// 旧 makeEnemy（difficulty 線形スケール）相当の敵を再現し、難易度の意味を保つ。
+function scaledEnemy(diff: number): CharacterBuild {
+  return {
+    characterId: `enemy_d${diff}`,
+    level: diff,
+    stats: { vit: 8 + diff * 3, mag: 2, pow: 6 + diff * 2, spd: 6 + diff, men: 4 },
+    spellLines: { fire: 0, cure: 0, sleep: 0, strength: 0 },
+    equipment: { weapon: 'sword_iron', armor: 'mail_leather', shield: null },
+  };
+}
+function encounter(diff: number) {
+  return [{ build: scaledEnemy(diff), weight: 1 }];
+}
+
 const dungeon: DungeonDef = {
   slug: 'novice_field',
   difficulty: 2,
@@ -44,6 +59,7 @@ const dungeon: DungeonDef = {
     { kind: 'equipment', id: 'mail_leather', weight: 5 },
     { kind: 'item', id: 'potion_hp_small', weight: 4 },
   ],
+  encounterTable: encounter(2),
 };
 
 // 標準的な物理アタッカー（装備あり）
@@ -118,7 +134,7 @@ Deno.test('報酬: totalXp/gold/drops は明細の合計と一致・勝利のみ
 Deno.test('終了条件: ko⇔HP0・time⇔HP>0、時間は指定内、刻みは戦闘長依存', () => {
   // 弱い hero を高難度へ → いつか強制帰還
   const weak = makeBuild('weak', { vit: 8, mag: 2, pow: 8, spd: 8, men: 4 }, {}, { weapon: 'dagger' });
-  const hard: DungeonDef = { slug: 'hard', difficulty: 6, dropTable: [] };
+  const hard: DungeonDef = { slug: 'hard', difficulty: 6, dropTable: [], encounterTable: encounter(6) };
   const ko = dive(weak, hard, 3, 600);
   assertEquals(ko.endReason, 'ko', '弱者×高難度は強制帰還');
   assertEquals(ko.hpRemaining, 0, 'ko なら HP0');
@@ -130,7 +146,7 @@ Deno.test('終了条件: ko⇔HP0・time⇔HP>0、時間は指定内、刻みは
     armor: 'mail_iron',
     shield: 'shield_iron',
   });
-  const easy: DungeonDef = { slug: 'easy', difficulty: 1, dropTable: [] };
+  const easy: DungeonDef = { slug: 'easy', difficulty: 1, dropTable: [], encounterTable: encounter(1) };
   const t = dive(tank, easy, 3, 30);
   assertEquals(t.endReason, 'time', '強者×低難度は時間切れ');
   assert(t.hpRemaining > 0, 'time なら HP は残る');
@@ -181,7 +197,7 @@ Deno.test('cure 持ちは cure 無しより長く潜れる（uptime 延長）', 
   const eq = { weapon: 'sword_iron', armor: 'mail_leather' };
   const healer = makeBuild('healer', base, { cure: 30 }, eq);
   const noCure = makeBuild('nocure', base, {}, eq);
-  const grind: DungeonDef = { slug: 'grind', difficulty: 3, dropTable: [] };
+  const grind: DungeonDef = { slug: 'grind', difficulty: 3, dropTable: [], encounterTable: encounter(3) };
 
   const h = dive(healer, grind, 55, 600);
   const n = dive(noCure, grind, 55, 600);

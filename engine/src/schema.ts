@@ -171,11 +171,19 @@ export interface DropEntry {
   weight: number; // 重み付き抽選（相対）
 }
 
-/** dive() の入力ダンジョン（DB dungeons 行の engine 側ビュー。ステ効果は formulas が正本） */
+// 遭遇（エンカウント）テーブル: そのダンジョンに「どの敵が」「どの重みで」出るか（ドロップ表と同型）。
+//   敵の正本は DB enemy_catalog（完全DB管理）。Edge Function が行から build を組んでここに載せる。
+export interface EncounterEntry {
+  build: CharacterBuild; // 敵1体のビルド（characterId = enemy_catalog.id）
+  weight: number; // 重み付き抽選（相対）
+}
+
+/** dive() の入力ダンジョン（DB dungeons 行の engine 側ビュー）。 */
 export interface DungeonDef {
   slug: string;
-  difficulty: number; // 敵の強さ・報酬レートのスケール
+  difficulty: number; // 報酬レートのスケール（敵の強さは encounterTable が決める）
   dropTable: DropEntry[];
+  encounterTable: EncounterEntry[]; // 出現する敵と重み（空なら敵なし＝即帰還）
 }
 
 export type DiveEndReason = 'time' | 'ko';

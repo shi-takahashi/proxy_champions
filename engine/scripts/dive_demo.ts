@@ -17,6 +17,39 @@ const dungeon: DungeonDef = {
     { kind: 'equipment', id: 'mail_leather', weight: 5 },
     { kind: 'item', id: 'potion_hp_small', weight: 4 },
   ],
+  // 遭遇テーブル（デモ用の混在編成: 雑魚多め・魔法型少なめ）
+  encounterTable: [
+    {
+      build: {
+        characterId: 'slime',
+        level: 1,
+        stats: { vit: 6, mag: 1, pow: 4, spd: 5, men: 2 },
+        spellLines: { fire: 0, cure: 0, sleep: 0, strength: 0 },
+        equipment: { weapon: null, armor: null, shield: null },
+      },
+      weight: 5,
+    },
+    {
+      build: {
+        characterId: 'goblin',
+        level: 2,
+        stats: { vit: 10, mag: 2, pow: 8, spd: 7, men: 4 },
+        spellLines: { fire: 0, cure: 0, sleep: 0, strength: 0 },
+        equipment: { weapon: 'dagger', armor: 'mail_leather', shield: null },
+      },
+      weight: 4,
+    },
+    {
+      build: {
+        characterId: 'wizard',
+        level: 4,
+        stats: { vit: 7, mag: 14, pow: 3, spd: 8, men: 6 },
+        spellLines: { fire: 20, cure: 0, sleep: 0, strength: 0 },
+        equipment: { weapon: 'staff_oak', armor: 'robe', shield: null },
+      },
+      weight: 1,
+    },
+  ],
 };
 
 const builds: Record<string, CharacterBuild> = {
