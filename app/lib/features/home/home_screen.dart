@@ -178,6 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute(
+          // 練習試合は手動送り（autoStart 既定 false）でじっくり読ませる。
           builder: (_) => ReplayScreen(eventLog: log, nameOf: nameOf),
         ),
       );

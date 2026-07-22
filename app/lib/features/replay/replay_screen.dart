@@ -8,11 +8,22 @@ import '../../models/battle_event.dart';
 /// クラシックRPG風の戦闘再生（企画書4章）。
 /// 黒背景・等幅テキストのログ送り・上部に A/B の HP バー・被弾で画面シェイク。
 /// eventLog を順に消化するだけ（＝サーバーが返した決定論ログの純粋な再生）。
+///
+/// 送りは「意味のある1ビート」単位（gauge_ready などの繋ぎイベントは、次の
+/// 攻撃/魔法/回復/撃破まで一緒に消化する）。手動送り（[次へ]）と自動再生を
+/// 画面内トグルで切り替えられる。[autoStart] で初期モードを決める
+/// （練習試合＝手動でじっくり、大会観戦＝自動で流し見）。
 class ReplayScreen extends StatefulWidget {
   final List<BattleEvent> eventLog;
   final Map<String, String> nameOf; // combatant id -> 表示名
+  final bool autoStart; // true=最初から自動再生 / false=手動送り
 
-  const ReplayScreen({super.key, required this.eventLog, required this.nameOf});
+  const ReplayScreen({
+    super.key,
+    required this.eventLog,
+    required this.nameOf,
+    this.autoStart = false,
+  });
 
   @override
   State<ReplayScreen> createState() => _ReplayScreenState();
@@ -26,6 +37,7 @@ class _ReplayScreenState extends State<ReplayScreen> with SingleTickerProviderSt
   final Map<String, String> _side = {}; // id -> 'A'|'B'
   int _i = 0;
   Timer? _timer;
+  bool _auto = false;
   String? _winnerSide;
 
   late final AnimationController _shake = AnimationController(
@@ -34,6 +46,7 @@ class _ReplayScreenState extends State<ReplayScreen> with SingleTickerProviderSt
   );
 
   String _name(String id) => widget.nameOf[id] ?? id;
+  bool get _finished => _i >= widget.eventLog.length;
 
   @override
   void initState() {
@@ -45,49 +58,78 @@ class _ReplayScreenState extends State<ReplayScreen> with SingleTickerProviderSt
       _hp[f.id] = f.maxHp;
       _side[f.id] = f.side;
     }
-    _timer = Timer.periodic(const Duration(milliseconds: 550), (_) => _step());
+    if (widget.autoStart) _startAuto();
   }
 
-  void _step() {
-    if (_i >= widget.eventLog.length) {
-      _timer?.cancel();
-      return;
-    }
-    final e = widget.eventLog[_i++];
-
-    // HP バー更新（対象の hpAfter を反映）
-    if (e.hpAfter != null && e.target != null) {
-      _hp[e.target!] = e.hpAfter!;
-    }
+  /// 1イベント分の状態反映（HPバー・勝敗・シェイク・ログ行）。setState はしない。
+  void _applyEvent(BattleEvent e) {
+    if (e.hpAfter != null && e.target != null) _hp[e.target!] = e.hpAfter!;
     if (e.isEnd) _winnerSide = e.winner;
     if (e.causesShake) _shake.forward(from: 0);
+    _lines.add(e.describe(_name));
+  }
 
-    // ログ行（gauge_ready は間引かず出すと冗長なので簡素表示）
-    final line = e.describe(_name);
-    setState(() => _lines.add(line));
+  /// 「意味のある1ビート」進める＝繋ぎイベント（gauge_ready 等）を消化してから、
+  /// 最初の意味あるイベント（攻撃/魔法/撃破/決着…）を1つ出したところで止める。
+  void _advanceBeat() {
+    if (_finished) return;
+    var emittedMeaningful = false;
+    while (_i < widget.eventLog.length && !emittedMeaningful) {
+      final e = widget.eventLog[_i++];
+      _applyEvent(e);
+      if (!e.isConnective) emittedMeaningful = true;
+    }
+    setState(() {});
+    _scrollToEnd(animate: true);
+    if (_finished) _stopAuto();
+  }
 
+  void _startAuto() {
+    if (_finished) return;
+    _timer?.cancel();
+    _auto = true;
+    _timer = Timer.periodic(const Duration(milliseconds: 650), (_) => _advanceBeat());
+  }
+
+  void _stopAuto() {
+    _timer?.cancel();
+    _timer = null;
+    if (_auto && mounted) {
+      setState(() => _auto = false);
+    } else {
+      _auto = false;
+    }
+  }
+
+  void _toggleAuto() {
+    if (_auto) {
+      _stopAuto();
+    } else {
+      setState(_startAuto);
+    }
+  }
+
+  void _skipToEnd() {
+    _stopAuto();
+    while (_i < widget.eventLog.length) {
+      _applyEvent(widget.eventLog[_i++]);
+    }
+    setState(() {});
+    _scrollToEnd(animate: false);
+  }
+
+  void _scrollToEnd({required bool animate}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
+      if (!_scroll.hasClients) return;
+      if (animate) {
         _scroll.animateTo(
           _scroll.position.maxScrollExtent,
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
+      } else {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
       }
-    });
-  }
-
-  void _skipToEnd() {
-    _timer?.cancel();
-    while (_i < widget.eventLog.length) {
-      final e = widget.eventLog[_i++];
-      if (e.hpAfter != null && e.target != null) _hp[e.target!] = e.hpAfter!;
-      if (e.isEnd) _winnerSide = e.winner;
-      _lines.add(e.describe(_name));
-    }
-    setState(() {});
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
     });
   }
 
@@ -152,24 +194,64 @@ class _ReplayScreenState extends State<ReplayScreen> with SingleTickerProviderSt
                 ),
                 if (_winnerSide != null) _resultBanner(),
                 const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton(
-                      onPressed: _skipToEnd,
-                      child: const Text('▶▶ 最後まで', style: TextStyle(color: Colors.white70)),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('もう一度', style: TextStyle(color: Colors.white70)),
-                    ),
-                  ],
-                ),
+                _controls(),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _controls() {
+    // 決着後は送り系を隠し、[もう一度] だけ残す。
+    if (_finished) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('もう一度', style: TextStyle(color: Colors.white70)),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 手動送りの主役ボタン。自動再生中は無効化（自動が進めているため）。
+        ElevatedButton.icon(
+          onPressed: _auto ? null : _advanceBeat,
+          icon: const Icon(Icons.play_arrow),
+          label: const Text('次へ'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.lightBlueAccent,
+            foregroundColor: Colors.black,
+            disabledBackgroundColor: Colors.white12,
+            disabledForegroundColor: Colors.white38,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            TextButton.icon(
+              onPressed: _toggleAuto,
+              icon: Icon(_auto ? Icons.pause : Icons.fast_forward, size: 18, color: Colors.white70),
+              label: Text(_auto ? '一時停止' : '自動再生', style: const TextStyle(color: Colors.white70)),
+            ),
+            TextButton(
+              onPressed: _skipToEnd,
+              child: const Text('▶▶ 最後まで', style: TextStyle(color: Colors.white70)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('もう一度', style: TextStyle(color: Colors.white70)),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

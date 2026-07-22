@@ -52,6 +52,10 @@ class BattleEvent {
   bool get isKo => type == 'ko';
   bool get isEnd => type == 'battle_end';
 
+  /// 繋ぎ（それ自体は結果を持たない）イベント。1ビート送りでは、これらは
+  /// 次の意味のあるイベント（攻撃/魔法/回復/撃破/決着…）まで一緒に消化する。
+  bool get isConnective => type == 'battle_start' || type == 'gauge_ready';
+
   /// クラシックRPG風のログ1行。names[id] で表示名解決（無ければ id）。
   String describe(String Function(String id) name) {
     switch (type) {

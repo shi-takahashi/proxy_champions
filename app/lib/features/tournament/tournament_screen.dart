@@ -57,7 +57,10 @@ class _TournamentScreenState extends State<TournamentScreen> {
       final nameOf = {for (final e in v.names.entries) e.key: e.value};
       if (!mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ReplayScreen(eventLog: log, nameOf: nameOf)),
+        // 大会観戦は多試合を流し見するので自動再生で開始（画面内で手動送りに切替可）。
+        MaterialPageRoute(
+          builder: (_) => ReplayScreen(eventLog: log, nameOf: nameOf, autoStart: true),
+        ),
       );
     } catch (e) {
       if (mounted) {
