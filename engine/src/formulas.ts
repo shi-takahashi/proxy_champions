@@ -191,3 +191,12 @@ export const ITEMS: Record<string, ItemDef> = {
   potion_mp_full: { id: 'potion_mp_full', name: 'MP回復薬（大）', effect: { kind: 'mp', pct: 1.0 } },
   elixir: { id: 'elixir', name: 'エリクサー', effect: { kind: 'both', pct: 1.0 } },
 };
+
+// ────────────────────────────────────────────────────────────
+// ショップの「販売リスト（何を・いくらで・いつ売るか）」は engine ではなく
+// DB のショップマスタ（shop_listings）が正本（migration 20260724000014_shop_master.sql）。
+//   ・運用が「販売する/しない・期間限定・価格」をマスタ行の追加/編集だけで変えられるようにするため。
+//   ・engine は "アイテムがどう振る舞うか"（回復量・戦闘効果＝上の ITEMS/WEAPONS 等）だけの正本に留める。
+//   ・buy（Edge Function）は shop_listings を service_role で読み、販売期間内かを検証して価格を確定する
+//     ＝クライアント申告の価格/在庫は信じない（企画書13.6）。
+// ────────────────────────────────────────────────────────────

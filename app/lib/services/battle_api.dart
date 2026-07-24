@@ -126,6 +126,68 @@ class BattleApi {
         .toList();
   }
 
+  /// 「今」販売中の商品一覧（ショップマスタ shop_listings を now() で期間判定＝available_shop_listings RPC）。
+  /// 商品名/説明/価格/期間はマスタ管理。自分の所持装備で「所持済み」フラグを立てる。
+  Future<List<ShopListing>> fetchShopListings() async {
+    final userId = _c.auth.currentUser!.id;
+    final rows = await _c.rpc('available_shop_listings');
+    final ownedRows = await _c
+        .from('player_equipment')
+        .select('equipment_id')
+        .eq('player_id', userId);
+    final ownedIds = (ownedRows as List)
+        .map((e) => (e as Map<String, dynamic>)['equipment_id'] as String)
+        .toSet();
+    return (rows as List)
+        .map((e) => ShopListing.fromRow(e as Map<String, dynamic>, ownedIds))
+        .toList();
+  }
+
+  /// 商品を購入（run-dispatch: buy）。listingId＝ショップマスタの行。
+  /// 価格・販売期間の検証、ゴールド減算、所持付与はすべてサーバー権威。
+  /// 購入後の残ゴールドを返す（既所持/不足/販売期間外はサーバーが 409＝Exception で弾く）。
+  Future<int> buyListing(String characterId, String listingId, {int quantity = 1}) async {
+    final data = await _invokeDispatch('購入', {
+      'action': 'buy',
+      'characterId': characterId,
+      'listingId': listingId,
+      'quantity': quantity,
+    });
+    return (data['goldLeft'] as num).toInt();
+  }
+
+  /// 売却できる所持品（倉庫の装備＋所持消耗品）＋カタログの売却価格。
+  /// 装備し替えは未実装なので装備中判定は画面側で character.equipment と突き合わせる。
+  Future<List<SellEntry>> fetchSellables() async {
+    final userId = _c.auth.currentUser!.id;
+    final eqRows = await _c
+        .from('player_equipment')
+        .select('equipment_catalog(id, name, slot, sell_price)')
+        .eq('player_id', userId);
+    final itemRows = await _c
+        .from('player_items')
+        .select('quantity, item_catalog(id, name, sell_price)')
+        .eq('player_id', userId)
+        .gt('quantity', 0);
+    return [
+      ...(eqRows as List).map((e) => SellEntry.equipment(e as Map<String, dynamic>)),
+      ...(itemRows as List).map((e) => SellEntry.item(e as Map<String, dynamic>)),
+    ];
+  }
+
+  /// 所持品を売却（run-dispatch: sell）。売却価格の照合・gold 加算・所持減はサーバー権威。
+  /// 売却後の残ゴールドを返す（未所持/装備中/売却不可はサーバーが 409＝Exception で弾く）。
+  Future<int> sell(String characterId, String kind, String id, {int quantity = 1}) async {
+    final data = await _invokeDispatch('売却', {
+      'action': 'sell',
+      'characterId': characterId,
+      'kind': kind,
+      'id': id,
+      'quantity': quantity,
+    });
+    return (data['goldLeft'] as num).toInt();
+  }
+
   /// 派遣先ダンジョン一覧（共有コンテンツ）。
   Future<List<Dungeon>> fetchDungeons() async {
     final rows = await _c.from('dungeons').select('*').order('difficulty');

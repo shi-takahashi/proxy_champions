@@ -9,6 +9,7 @@ import '../../widgets/build_preview.dart';
 import '../allocate/allocate_screen.dart';
 import '../dispatch/dispatch_screen.dart';
 import '../replay/replay_screen.dart';
+import '../shop/shop_screen.dart';
 import '../tournament/tournament_screen.dart';
 
 /// M5.4: 育成ループのホーム（1ユーザー1キャラのダッシュボード）。
@@ -150,6 +151,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openTournament() async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => TournamentScreen(api: widget.api)));
+  }
+
+  Future<void> _openShop() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ShopScreen(api: widget.api, character: _char!, initialGold: _player!.gold),
+      ),
+    );
+    if (changed == true) await _reload(); // ゴールド/所持が変わったら再読込
   }
 
   Future<void> _useItem(InventoryItem item) async {
@@ -296,6 +306,8 @@ class _HomeScreenState extends State<HomeScreen> {
               _inventorySection(dispatching: dispatching, hp: hp, mhp: mhp, mp: mp, mmp: mmp),
               const SizedBox(height: 12),
               OutlinedButton.icon(onPressed: (_busy || dispatching) ? null : _openAllocate, icon: const Icon(Icons.tune), label: const Text('ステータス / 育成')),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(onPressed: _busy ? null : _openShop, icon: const Icon(Icons.storefront), label: const Text('ショップ 🛒')),
               const SizedBox(height: 12),
               OutlinedButton.icon(onPressed: _busy ? null : _openTournament, icon: const Icon(Icons.emoji_events), label: const Text('大会を観る 🏆')),
               const SizedBox(height: 12),

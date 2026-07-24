@@ -16,6 +16,14 @@
  *     { action: 'use_item', characterId, itemId }
  *        → 所持アイテム（回復薬）を1つ消費。engine ITEMS の効果（hp/mp/both × 割合）で回復し
  *          player_items の quantity を減算（0 になったら行を削除）。
+ *     { action: 'buy', characterId, listingId, quantity? }
+ *        → ショップ購入（ゴールドの出口・企画書3.6）。listingId＝ショップマスタ shop_listings の行。
+ *          価格も販売期間もマスタ行を service_role で読んで権威的に検証（販売期間外は 409）。
+ *          gold を減算して所持を付与（equipment→player_equipment / item→player_items）。
+ *          装備は「型」＝所持有無（既所持は 409）。回復薬は quantity 個（既定1）加算。
+ *     { action: 'sell', characterId, kind: 'equipment'|'item', id, quantity? }
+ *        → 不要な装備/アイテムを売る。売却価格の正本は catalog.sell_price（DB マスタ）。
+ *          gold を加算して所持を減らす。装備中のもの・売却不可(sell_price=null)は 409。
  *     { action: 'status', characterId }
  *        → 実効体力（自然回復込み）＋回復ETA、および派遣中かどうか/帰還までの残り分を返す（ホーム表示用）
  *
@@ -585,6 +593,222 @@ async function handleUseItem(authHeader: string, body: Record<string, unknown>):
   return json({ itemId, hp: newHp, maxHp, mp: newMp, maxMp, quantityLeft: left });
 }
 
+interface ShopListingRow {
+  id: string;
+  product_type: 'equipment' | 'item';
+  equipment_id: string | null;
+  item_id: string | null;
+  name: string;
+  price: number;
+  starts_at: string | null; // null = 販売開始の制限なし
+  ends_at: string | null; // null = 無期限
+  active: boolean;
+}
+
+/** 販売リスト（ショップマスタ）の1行が「今」買えるか＝有効か＋期間内か。now はサーバー時刻。 */
+function listingSaleableNow(l: ShopListingRow, now: number): boolean {
+  if (!l.active) return false;
+  if (l.starts_at && now < Date.parse(l.starts_at)) return false; // まだ販売前
+  if (l.ends_at && now >= Date.parse(l.ends_at)) return false; // 販売終了
+  return true;
+}
+
+/**
+ * ショップ購入（ゴールドの出口・企画書3.6「店＝ゴールドで狙い撃ち」／3.3 回復薬）。
+ * 「何を・いくらで・いつ売るか」の正本は DB のショップマスタ shop_listings（listingId で指定）。
+ *   → 価格も販売期間も、マスタ行を service_role で読んでサーバー権威に検証（クライアント申告は信じない・企画書13.6）。
+ * gold 減算 → 所持付与の順で実行（M4/M5 と同水準の逐次 REST。厳密なトランザクションは後日）。
+ *   ・equipment: 「型」＝所持有無。既に持っていれば 409（重複所持しない）。付与は player_equipment 1行。
+ *   ・item     : 消耗品。quantity 個（既定1）を grantItem で加算。
+ */
+async function handleBuy(authHeader: string, body: Record<string, unknown>): Promise<Response> {
+  const characterId = body.characterId as string | undefined;
+  const listingId = body.listingId as string | undefined;
+  if (!characterId || !listingId) return json({ error: 'characterId と listingId が必要' }, 400);
+
+  // 認証＋所有者解決（run-dispatch の他アクションと同じく characterId から player_id を得る）。
+  const row = await readOwnedCharacter(authHeader, characterId);
+  if (!row) return json({ error: 'character not found or not owned' }, 404);
+
+  // ショップマスタから該当の販売行を service_role で読む（RLS 越し＝クライアントには隠れていてよい）。
+  const lRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/shop_listings?id=eq.${listingId}` +
+      `&select=id,product_type,equipment_id,item_id,name,price,starts_at,ends_at,active`,
+    { headers: svcHeaders() },
+  );
+  const lRows = await lRes.json();
+  const listing = Array.isArray(lRows) && lRows.length > 0 ? lRows[0] as ShopListingRow : null;
+  if (!listing) return json({ error: 'その商品は存在しない' }, 404);
+
+  // 販売期間の権威的チェック（サーバー時刻）。
+  const now = Date.now();
+  if (!listingSaleableNow(listing, now)) return json({ error: '現在は販売していない（販売期間外）' }, 409);
+
+  const kind = listing.product_type;
+  const refId = kind === 'equipment' ? listing.equipment_id : listing.item_id;
+  if (!refId) return json({ error: '商品データが不正（参照先なし）' }, 500);
+
+  // 数量：装備は常に1（型＝所持有無）。アイテムのみ複数可。
+  const qty = kind === 'item' ? Math.max(1, Math.floor(Number(body.quantity ?? 1))) : 1;
+  const total = listing.price * qty;
+
+  // 装備は先に「既に所持していないか」を確認（gold を減らす前に弾く）。
+  if (kind === 'equipment') {
+    const ownRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/player_equipment?player_id=eq.${row.player_id}&equipment_id=eq.${refId}&select=id`,
+      { headers: svcHeaders() },
+    );
+    const owned = await ownRes.json();
+    if (Array.isArray(owned) && owned.length > 0) return json({ error: 'その装備は既に所持している' }, 409);
+  }
+
+  // 所持ゴールドを service_role で読み、価格と照合。
+  const pRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}&select=gold`,
+    { headers: svcHeaders() },
+  );
+  const pRows = await pRes.json();
+  const gold = Array.isArray(pRows) && pRows.length > 0 ? Number(pRows[0].gold) : 0;
+  if (gold < total) return json({ error: 'ゴールドが足りない', price: total, gold }, 409);
+
+  // gold 減算 → 付与。
+  const dec = await fetch(`${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}`, {
+    method: 'PATCH',
+    headers: svcHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify({ gold: gold - total }),
+  });
+  if (!dec.ok) return json({ error: '購入失敗（gold 減算）', detail: await dec.json() }, 502);
+
+  let quantityLeft: number | undefined;
+  if (kind === 'equipment') {
+    const ins = await fetch(`${SUPABASE_URL}/rest/v1/player_equipment`, {
+      method: 'POST',
+      headers: svcHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify({ player_id: row.player_id, equipment_id: refId }),
+    });
+    if (!ins.ok) {
+      // 付与に失敗したら gold を戻す（ベストエフォートの補償）。
+      await fetch(`${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}`, {
+        method: 'PATCH',
+        headers: svcHeaders({ Prefer: 'return=minimal' }),
+        body: JSON.stringify({ gold }),
+      });
+      return json({ error: '購入失敗（装備付与）', detail: await ins.json() }, 502);
+    }
+  } else {
+    await grantItem(row.player_id, refId, qty);
+    const qRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/player_items?player_id=eq.${row.player_id}&item_id=eq.${refId}&select=quantity`,
+      { headers: svcHeaders() },
+    );
+    const qRows = await qRes.json();
+    quantityLeft = Array.isArray(qRows) && qRows.length > 0 ? Number(qRows[0].quantity) : qty;
+  }
+
+  return json({
+    listingId,
+    kind,
+    id: refId,
+    name: listing.name,
+    quantity: qty,
+    goldSpent: total,
+    goldLeft: gold - total,
+    quantityLeft,
+  });
+}
+
+/** カタログの売却価格を service_role で引く（正本＝DB マスタ。null=売却不可）。 */
+async function sellPriceOf(kind: 'equipment' | 'item', id: string): Promise<number | null | undefined> {
+  const table = kind === 'equipment' ? 'equipment_catalog' : 'item_catalog';
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}&select=sell_price`, { headers: svcHeaders() });
+  const rows = await res.json();
+  if (!Array.isArray(rows) || rows.length === 0) return undefined; // カタログに無い＝未知
+  return rows[0].sell_price === null ? null : Number(rows[0].sell_price); // null=売却不可
+}
+
+/**
+ * ショップでの売却（不要な装備/アイテムをゴールドに換える）。
+ * 売却価格の正本は catalog.sell_price（DB マスタ）＝クライアント申告は信じない（企画書13.6）。
+ *   ・equipment: 所持（player_equipment）を1つ手放して gold 加算。装備中のものは売れない（409）。
+ *   ・item     : player_items.quantity を quantity 個（既定1）減らして gold 加算。
+ * 所持減 → gold 加算の順で実行（M4/M5 と同水準の逐次 REST）。
+ */
+async function handleSell(authHeader: string, body: Record<string, unknown>): Promise<Response> {
+  const characterId = body.characterId as string | undefined;
+  const kind = body.kind as string | undefined;
+  const id = body.id as string | undefined;
+  if (!characterId || !id || (kind !== 'equipment' && kind !== 'item')) {
+    return json({ error: "characterId・id・kind('equipment'|'item') が必要" }, 400);
+  }
+
+  const row = await readOwnedCharacter(authHeader, characterId);
+  if (!row) return json({ error: 'character not found or not owned' }, 404);
+  if (row.dispatch_ends_at) return json({ error: '派遣中は売れない（帰還を待つ）' }, 409);
+
+  const unit = await sellPriceOf(kind, id);
+  if (unit === undefined) return json({ error: `未知の${kind === 'equipment' ? '装備' : 'アイテム'}: ${id}` }, 400);
+  if (unit === null) return json({ error: 'これは売却できない' }, 409);
+
+  const qty = kind === 'item' ? Math.max(1, Math.floor(Number(body.quantity ?? 1))) : 1;
+
+  // 所持ゴールドを読む（加算のため）。
+  const pRes = await fetch(`${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}&select=gold`, { headers: svcHeaders() });
+  const pRows = await pRes.json();
+  const gold = Array.isArray(pRows) && pRows.length > 0 ? Number(pRows[0].gold) : 0;
+
+  let quantityLeft: number | undefined;
+
+  if (kind === 'equipment') {
+    // 装備中（キャラが今つけている）ものは売らせない。
+    const eq = row.equipment;
+    if (eq && (eq.weapon === id || eq.armor === id || eq.shield === id)) {
+      return json({ error: '装備中のものは売れない（外してから）' }, 409);
+    }
+    // 所持を確認 → 削除。
+    const ownRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/player_equipment?player_id=eq.${row.player_id}&equipment_id=eq.${id}&select=id`,
+      { headers: svcHeaders() },
+    );
+    const owned = await ownRes.json();
+    if (!Array.isArray(owned) || owned.length === 0) return json({ error: 'その装備を持っていない' }, 409);
+    const del = await fetch(
+      `${SUPABASE_URL}/rest/v1/player_equipment?player_id=eq.${row.player_id}&equipment_id=eq.${id}`,
+      { method: 'DELETE', headers: svcHeaders({ Prefer: 'return=minimal' }) },
+    );
+    if (!del.ok) return json({ error: '売却失敗（装備削除）', detail: await del.json() }, 502);
+  } else {
+    // 所持数を確認 → quantity 個 減算（0 で行削除）。
+    const iRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/player_items?player_id=eq.${row.player_id}&item_id=eq.${id}&select=quantity`,
+      { headers: svcHeaders() },
+    );
+    const iRows = await iRes.json();
+    const have = Array.isArray(iRows) && iRows.length > 0 ? Number(iRows[0].quantity) : 0;
+    if (have < qty) return json({ error: '売る個数が足りない', have }, 409);
+    const left = have - qty;
+    const filter = `player_id=eq.${row.player_id}&item_id=eq.${id}`;
+    if (left <= 0) {
+      await fetch(`${SUPABASE_URL}/rest/v1/player_items?${filter}`, {
+        method: 'DELETE', headers: svcHeaders({ Prefer: 'return=minimal' }),
+      });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/player_items?${filter}`, {
+        method: 'PATCH', headers: svcHeaders({ Prefer: 'return=minimal' }), body: JSON.stringify({ quantity: left }),
+      });
+    }
+    quantityLeft = left;
+  }
+
+  // gold 加算。
+  const total = unit * qty;
+  const inc = await fetch(`${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}`, {
+    method: 'PATCH', headers: svcHeaders({ Prefer: 'return=minimal' }), body: JSON.stringify({ gold: gold + total }),
+  });
+  if (!inc.ok) return json({ error: '売却失敗（gold 加算）', detail: await inc.json() }, 502);
+
+  return json({ kind, id, quantity: qty, goldGained: total, goldLeft: gold + total, quantityLeft });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
@@ -608,11 +832,15 @@ Deno.serve(async (req) => {
       return await handleCollect(authHeader, body);
     case 'use_item':
       return await handleUseItem(authHeader, body);
+    case 'buy':
+      return await handleBuy(authHeader, body);
+    case 'sell':
+      return await handleSell(authHeader, body);
     case 'status':
       return await handleStatus(authHeader, body);
     default:
       return json({
-        error: "action は 'dispatch' | 'dispatch_instant' | 'collect' | 'use_item' | 'status'",
+        error: "action は 'dispatch' | 'dispatch_instant' | 'collect' | 'use_item' | 'buy' | 'sell' | 'status'",
       }, 400);
   }
 });

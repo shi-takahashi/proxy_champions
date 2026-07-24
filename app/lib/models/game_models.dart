@@ -131,6 +131,96 @@ class InventoryItem {
   }
 }
 
+/// ショップの販売行1件（= ショップマスタ shop_listings の「今売っている」行）。
+/// available_shop_listings() 関数が now() で期間判定して返す＝表示もサーバー時刻が権威。
+/// 商品名/説明/価格/期間はすべてマスタ側の管理項目（運用がテーブル編集で制御）。
+class ShopListing {
+  final String listingId; // shop_listings.id（buy はこれで指定）
+  final String productType; // 'equipment' | 'item'（商品種類）
+  final String? equipmentId; // 装備なら付与対象の型 id（所持判定に使う）
+  final String? itemId; // 回復薬なら付与対象の item id
+  final String name; // 商品名（表示）
+  final String? description; // 商品説明
+  final int price; // 必要コイン数
+  final DateTime? endsAt; // 販売終了（null=無期限。限定表示に使う）
+  final bool owned; // 装備で既に所持している型か（重複購入不可）
+
+  const ShopListing({
+    required this.listingId,
+    required this.productType,
+    required this.equipmentId,
+    required this.itemId,
+    required this.name,
+    required this.description,
+    required this.price,
+    required this.endsAt,
+    required this.owned,
+  });
+
+  bool get isEquipment => productType == 'equipment';
+  bool get isLimited => endsAt != null; // 販売終了日あり＝期間限定
+
+  factory ShopListing.fromRow(Map<String, dynamic> r, Set<String> ownedEquipmentIds) {
+    final eqId = r['equipment_id'] as String?;
+    return ShopListing(
+      listingId: r['listing_id'] as String,
+      productType: r['product_type'] as String,
+      equipmentId: eqId,
+      itemId: r['item_id'] as String?,
+      name: r['name'] as String,
+      description: r['description'] as String?,
+      price: (r['price'] as num).toInt(),
+      endsAt: r['ends_at'] == null ? null : DateTime.parse(r['ends_at'] as String).toLocal(),
+      owned: eqId != null && ownedEquipmentIds.contains(eqId),
+    );
+  }
+}
+
+/// 売却できる所持品1件（= player_equipment / player_items ＋ カタログの sell_price）。
+/// 売却価格の正本は catalog.sell_price（DB マスタ・null=売却不可）。装備は quantity=1。
+class SellEntry {
+  final String kind; // 'equipment' | 'item'
+  final String id;
+  final String name;
+  final int? sellPrice; // null = 売却不可
+  final int quantity; // 装備=1／消耗品=所持個数
+
+  const SellEntry({
+    required this.kind,
+    required this.id,
+    required this.name,
+    required this.sellPrice,
+    required this.quantity,
+  });
+
+  bool get isEquipment => kind == 'equipment';
+  bool get sellable => sellPrice != null;
+
+  /// player_equipment 行（equipment_catalog 埋め込み）から。
+  factory SellEntry.equipment(Map<String, dynamic> r) {
+    final cat = r['equipment_catalog'] as Map<String, dynamic>;
+    return SellEntry(
+      kind: 'equipment',
+      id: cat['id'] as String,
+      name: cat['name'] as String,
+      sellPrice: (cat['sell_price'] as num?)?.toInt(),
+      quantity: 1,
+    );
+  }
+
+  /// player_items 行（item_catalog 埋め込み）から。
+  factory SellEntry.item(Map<String, dynamic> r) {
+    final cat = r['item_catalog'] as Map<String, dynamic>;
+    return SellEntry(
+      kind: 'item',
+      id: cat['id'] as String,
+      name: cat['name'] as String,
+      sellPrice: (cat['sell_price'] as num?)?.toInt(),
+      quantity: (r['quantity'] as num).toInt(),
+    );
+  }
+}
+
 /// 派遣先ダンジョン（= dungeons 行・共有コンテンツ）。
 class Dungeon {
   final String id;
