@@ -30,7 +30,7 @@
 | | `dungeons` | 派遣ダンジョン（ドロップ表・遭遇表） | 全員 |
 | | `enemy_catalog` | 敵（ステ・呪文・装備を完全DB管理） | 全員 |
 | | `equipment_catalog` | 装備の登録簿（id/slot/name/kind/売却価格） | 全員 |
-| | `item_catalog` | 消耗品の登録簿（id/name/効果/売却価格） | 全員 |
+| | `item_catalog` | 消耗品マスタ（効果の正本・id/name/効果/売却価格） | 全員 |
 | | `divisions` | 大会ディビジョン（階層・名前） | 全員 |
 | **大会運用データ**（バッチ生成物） | `tournaments` | 大会（フェーズ/シード/優勝者/昇降格） | 全員 |
 | | `matches` | 試合結果＋eventLog | 全員 |
@@ -221,16 +221,20 @@ values ('equipment','axe_battle','【夏セール】戦斧','夏だけお得', 2
 - 全員 select / write service_role。seed 9件。powMult/physDef/spdPenalty は DB に無し。
 - **売却価格の正本＝この `sell_price`**（買値 shop_listings.price とは独立＝ショップ非掲載品でも売れる）。sell（Edge）が読んで gold 加算。seed 仮値（標準買値の約50%・migration 15）。
 
-### 3.5 `item_catalog`（消耗品の登録簿）△一部マスタ
-登録簿（表示名・効果・売却価格）。⚠️ **回復量の正本は engine `ITEMS`**（DB effect_* は表示ミラー＝§6-②）。
+### 3.5 `item_catalog`（消耗品マスタ）★フルにマスタ管理
+消耗品の**効果の正本**（＝ここが唯一の正本）。`use_item`（Edge）が `effect_kind/effect_pct` を読んで回復する。
+engine から ITEMS 定数は撤去済み（消耗品は戦闘に出てこない＝engine の管轄外）。
 
 | 列 | 型 | 意味 |
 |---|---|---|
 | `id` | text PK | `potion_hp_small` 等 |
 | `name` | text NOT NULL | 表示名 |
-| `effect_kind` | text NOT NULL | `hp`/`mp`/`both` |
-| `effect_pct` | numeric NOT NULL | 回復割合（0.10〜1.00） |
+| `effect_kind` | text NOT NULL | `hp`/`mp`/`both`（回復対象） |
+| `effect_pct` | numeric NOT NULL | 回復割合（0.10〜1.00・最大値に対する%） |
 | `sell_price` | int NULL (>0) | 売却価格（売る時に得るコイン・null=売却不可） |
+
+- 全員 select / write service_role。seed 5件。
+- ⚠️ 表示名だけは Flutter `stat_labels.dart` の `itemNames` にもハードコードのミラーが残る（display-only・§6 の名前ミラー整理で解消予定）。
 
 - 全員 select / write service_role。seed 5件。
 
@@ -331,13 +335,15 @@ values ('equipment','axe_battle','【夏セール】戦斧','夏だけお得', 2
 原則（§0）に照らすと以下は「運用が触りたくなり得る値」だが**現状 engine 定数**（`engine/src/formulas.ts`）。マスタへ寄せるか要判断。
 
 1. **装備の性能**（`WEAPONS/ARMORS/SHIELDS`）：`powMult`・`physDef`・`spdPenalty`。→ `equipment_catalog` に性能列を足せば運用調整可（売却価格 `sell_price` は既に catalog へ移済み＝同じ要領で性能も移せる）。
-2. **消耗品の効果**（`ITEMS`）：`effect_kind`/`effect_pct`。DB `item_catalog` に同列があるのに**engine が正本**＝二重。一本化すべき。
+2. ~~**消耗品の効果**（`ITEMS`）：engine と DB の二重~~ → ✅ **解決済み**（2026-07-24）。engine `ITEMS` を撤去し `item_catalog` を効果の唯一の正本に。`use_item` が DB を読む。
 3. **派遣の報酬・回復レート**（`CONFIG.dive`）：`xpPerWinBase=10`・`goldPerWinBase=5`・`dropChancePerWin=0.15`・`regenPctPerMinute=0.01`・戦闘時間換算。→ live-ops で最も触る。ダンジョン別にしたいなら `dungeons` 列 or 専用マスタ。
 4. **成長式**（`GROWTH`）：`baseXp=100`・`curveExp=1.5`・`basePool=40`・`pointsPerLevel=5`・`respecBase=50`・`respecPerLevel=20`。
 5. **大会フォーマット**（`TOURNAMENT`）：`pointsWin/Draw/Loss`・`bracketSize=4`・`promote/relegateCount=2`。→ `divisions` 拡張 or 大会マスタ候補。
 6. **戦闘定数**（`CONFIG` 物理/魔法/CTB/sleep）・**呪文MPコスト**（`CONFIG.mpCost`）・**呪文Tier刻み**（`spellTier`=10刻み）。→ 「どう振る舞うか」なので engine 正本が自然だが、バランス値として運用が触るなら別。
 
-> ①②は「登録簿マスタがあるのに性能/効果だけ engine」という中途半端さ＝真っ先の整理候補。
+> ②は解決済み。残る真っ先の候補は**①装備の性能**（engine `WEAPONS/ARMORS/SHIELDS` ＋ Flutter `combat_stats.dart` の二重ミラー）。`battle()` の入力契約変更が要るため別パス予定。
+>
+> **表示名の三重ミラー**（engine name／DB `catalog.name`／Flutter `stat_labels.dart` の `equipmentNames`/`itemNames`）も未整理。engine 側は ITEMS 撤去で1つ減ったが、Flutter のハードコード名マップは残る（display-only）。①の装備パスで「DB から名前マップを取る」形にまとめて解消予定。
 
 ---
 

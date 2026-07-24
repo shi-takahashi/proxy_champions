@@ -14,7 +14,7 @@
  *     { action: 'dispatch_instant', characterId, dungeonId, minutes }   ★デバッグ用
  *        → 旧挙動: 押した瞬間に全連戦を解決して即座に報酬まで反映（動作確認を速くするため温存）。
  *     { action: 'use_item', characterId, itemId }
- *        → 所持アイテム（回復薬）を1つ消費。engine ITEMS の効果（hp/mp/both × 割合）で回復し
+ *        → 所持アイテム（回復薬）を1つ消費。DB item_catalog の効果（hp/mp/both × 割合）で回復し
  *          player_items の quantity を減算（0 になったら行を削除）。
  *     { action: 'buy', characterId, listingId, quantity? }
  *        → ショップ購入（ゴールドの出口・企画書3.6）。listingId＝ショップマスタ shop_listings の行。
@@ -35,7 +35,7 @@
  */
 import { dive, staminaRecover } from '../_engine/dive.ts';
 import { gainXp } from '../_engine/growth.ts';
-import { CONFIG, ITEMS, maxHP, maxMP } from '../_engine/formulas.ts';
+import { CONFIG, maxHP, maxMP } from '../_engine/formulas.ts';
 import type { CharacterBuild, DiveResult, DropRef, DungeonDef } from '../_engine/schema.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -529,7 +529,7 @@ async function handleStatus(authHeader: string, body: Record<string, unknown>): 
 }
 
 /**
- * 所持アイテム（回復薬）を1つ使う。効果の正本は engine ITEMS（hp/mp/both × 割合）。
+ * 所持アイテム（回復薬）を1つ使う。効果の正本は DB item_catalog（effect_kind/effect_pct）。
  * 回復は「自然回復込みの実効HP/MP」から加算し、最大値で頭打ち（例: 10%薬は現在値+最大の10%）。
  * 消費後 player_items.quantity を減算（0 なら行を削除）。
  */
@@ -538,8 +538,15 @@ async function handleUseItem(authHeader: string, body: Record<string, unknown>):
   const itemId = body.itemId as string | undefined;
   if (!characterId || !itemId) return json({ error: 'characterId と itemId が必要' }, 400);
 
-  const def = ITEMS[itemId];
-  if (!def) return json({ error: `未知のアイテム: ${itemId}` }, 400);
+  // 効果の正本は DB item_catalog（マスタ）。service_role で読む。
+  const catRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/item_catalog?id=eq.${itemId}&select=effect_kind,effect_pct`,
+    { headers: svcHeaders() },
+  );
+  const catRows = await catRes.json();
+  if (!Array.isArray(catRows) || catRows.length === 0) return json({ error: `未知のアイテム: ${itemId}` }, 400);
+  const effectKind = catRows[0].effect_kind as 'hp' | 'mp' | 'both';
+  const effectPct = Number(catRows[0].effect_pct);
 
   const row = await readOwnedCharacter(authHeader, characterId);
   if (!row) return json({ error: 'character not found or not owned' }, 404);
@@ -563,13 +570,13 @@ async function handleUseItem(authHeader: string, body: Record<string, unknown>):
   const patch: Record<string, unknown> = {};
   let newHp = effectiveHp(row, maxHp, now);
   let newMp = effectiveMp(row, maxMp, now);
-  if (def.effect.kind === 'hp' || def.effect.kind === 'both') {
-    newHp = Math.min(maxHp, newHp + Math.floor(maxHp * def.effect.pct));
+  if (effectKind === 'hp' || effectKind === 'both') {
+    newHp = Math.min(maxHp, newHp + Math.floor(maxHp * effectPct));
     patch.current_hp = newHp;
     patch.hp_updated_at = nowIso;
   }
-  if (def.effect.kind === 'mp' || def.effect.kind === 'both') {
-    newMp = Math.min(maxMp, newMp + Math.floor(maxMp * def.effect.pct));
+  if (effectKind === 'mp' || effectKind === 'both') {
+    newMp = Math.min(maxMp, newMp + Math.floor(maxMp * effectPct));
     patch.current_mp = newMp;
     patch.mp_updated_at = nowIso;
   }

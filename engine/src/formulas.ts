@@ -9,7 +9,7 @@
  *   - sleep 成功率は 魔力≈精神 周辺で急・floor/ceiling（0/100%なし）
  */
 
-import type { ArmorDef, ItemDef, ShieldDef, Stats, WeaponDef } from './schema.ts';
+import type { ArmorDef, ShieldDef, Stats, WeaponDef } from './schema.ts';
 
 export const CONFIG = {
   // ── 派生値（企画書3.5.1：HP/MP は体力/魔力から倍率で算出。基本5ステは同スケール維持）
@@ -179,24 +179,13 @@ export const SHIELDS: Record<string, ShieldDef> = {
 };
 
 // ────────────────────────────────────────────────────────────
-// アイテムカタログ（消耗品・回復薬／企画書3.3「体力を一気に回復」）
-// 効果の正本はここ（DB item_catalog はミラー）。use_item が pct から回復量を算出する。
-// effect.pct = 最大値に対する回復割合（0.10=10% / 1.0=全回復）。
-// ★ここを増やしたら DB seed（item 系マイグレーション）と Flutter の itemNames を揃えること。
-// ────────────────────────────────────────────────────────────
-export const ITEMS: Record<string, ItemDef> = {
-  potion_hp_small: { id: 'potion_hp_small', name: 'HP回復薬（小）', effect: { kind: 'hp', pct: 0.1 } },
-  potion_hp_full: { id: 'potion_hp_full', name: 'HP回復薬（大）', effect: { kind: 'hp', pct: 1.0 } },
-  potion_mp_small: { id: 'potion_mp_small', name: 'MP回復薬（小）', effect: { kind: 'mp', pct: 0.1 } },
-  potion_mp_full: { id: 'potion_mp_full', name: 'MP回復薬（大）', effect: { kind: 'mp', pct: 1.0 } },
-  elixir: { id: 'elixir', name: 'エリクサー', effect: { kind: 'both', pct: 1.0 } },
-};
-
-// ────────────────────────────────────────────────────────────
-// ショップの「販売リスト（何を・いくらで・いつ売るか）」は engine ではなく
-// DB のショップマスタ（shop_listings）が正本（migration 20260724000014_shop_master.sql）。
-//   ・運用が「販売する/しない・期間限定・価格」をマスタ行の追加/編集だけで変えられるようにするため。
-//   ・engine は "アイテムがどう振る舞うか"（回復量・戦闘効果＝上の ITEMS/WEAPONS 等）だけの正本に留める。
-//   ・buy（Edge Function）は shop_listings を service_role で読み、販売期間内かを検証して価格を確定する
-//     ＝クライアント申告の価格/在庫は信じない（企画書13.6）。
+// 消耗品（回復薬）は engine の管轄外：
+//   ・「戦闘に出てこない」ので engine は効果を持たない。効果の正本は DB item_catalog（effect_kind/effect_pct）。
+//     使用（回復）は run-dispatch: use_item が item_catalog を読んで処理する（サーバー権威）。
+//   ・以前ここにあった ITEMS 定数は撤去（engine と DB の二重管理＝ドリフト源だったため）。
+//
+// ショップの「販売リスト（何を・いくらで・いつ売るか）」も engine ではなく DB のショップマスタ
+// shop_listings が正本（migration 20260724000014_shop_master.sql）。売却価格は catalog.sell_price が正本。
+//   ・engine は "戦闘でどう振る舞うか"（WEAPONS/ARMORS/SHIELDS の性能・戦闘式）だけの正本に留める。
+//   ・buy/sell（Edge Function）は DB を service_role で読んで価格/期間を検証する（クライアント申告は信じない）。
 // ────────────────────────────────────────────────────────────

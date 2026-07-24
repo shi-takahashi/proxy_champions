@@ -73,17 +73,11 @@ export interface EquipmentLoadout {
 
 // ────────────────────────────────────────────────────────────
 // アイテム（消耗品・回復薬／企画書3.3）
-//   装備と同じ「型はここ / 実データ（仮カタログ）は formulas.ts の ITEMS」。
-//   装備と違い消耗品なので、所持は個数（DB player_items.quantity）で持つ。
-//   effect.pct = 最大値に対する回復割合（0.10=10% / 1.0=全回復）。
+//   ★消耗品は「戦闘に出てこない」ので engine は効果を持たない。正本は DB item_catalog。
+//     使用（回復）はサーバー（run-dispatch: use_item）が item_catalog.effect_* を読んで処理する。
+//   効果種別の型だけ共有（DB の effect_kind と一致）。effect_pct = 最大値に対する回復割合。
 // ────────────────────────────────────────────────────────────
 export type ItemEffectKind = 'hp' | 'mp' | 'both'; // hp=HP回復 / mp=MP回復 / both=両方
-
-export interface ItemDef {
-  id: string;
-  name: string;
-  effect: { kind: ItemEffectKind; pct: number };
-}
 
 // ────────────────────────────────────────────────────────────
 // キャラのビルド（＝DB保存形・Flutter入力形・battle() 入力の"正本"）
@@ -167,7 +161,7 @@ export interface DropRef {
 
 export interface DropEntry {
   kind: DropKind; // equipment=装備ドロップ / item=アイテムドロップ
-  id: string; // WeaponDef/ArmorDef/ShieldDef の id、または ItemDef の id
+  id: string; // equipment_catalog / item_catalog の id（＝装備 or 消耗品の識別子）
   weight: number; // 重み付き抽選（相対）
 }
 
