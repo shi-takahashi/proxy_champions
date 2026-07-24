@@ -315,6 +315,9 @@ values ('equipment','axe_battle','【夏セール】戦斧','夏だけお得', 2
 | 購入の価格/期間検証 | Edge `run-dispatch: buy` が `shop_listings` を service_role 読み | 権威 |
 | 売却の価格照合 | Edge `run-dispatch: sell` が `catalog.sell_price` を service_role 読み | 権威（装備中/売却不可は 409） |
 | 売れる所持品一覧 | `player_equipment`/`player_items` を catalog 埋め込みで本人 select | sell_price 付き |
+| ★デバッグ コイン付与 | Edge `run-dispatch: debug_grant_gold` | env `DEBUG_TOOLS=true` 時のみ。本番は 403（後述） |
+
+**デバッグ機能の安全ガード（本番で使えないように）**：`debug_*` アクションは env `DEBUG_TOOLS=true` のときだけ動く（未設定なら 403）。ローカルは `supabase/functions/.env`（`.gitignore` 済＝コミットも本番デプロイもされない）に `DEBUG_TOOLS=true` を置き、`supabase functions serve` が自動ロードする。本番は secrets に `DEBUG_TOOLS` を入れない＝機能が存在しない。クライアントも `kDebugMode`（リリースで false）でUIを出さない＝二重ガード。
 | 派遣の敵/ドロップ抽選 | Edge `run-dispatch` が `dungeons`+`enemy_catalog` 読み | 権威 |
 | ダンジョン/装備名/消耗品名 | `dungeons`/`equipment_catalog`/`item_catalog` を全員 select | 表示 |
 | 観戦（順位/カード/再生） | `tournaments`/`standings`/`matches`/`tournament_entrants` 全員 select | 表示 |

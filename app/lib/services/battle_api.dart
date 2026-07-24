@@ -188,6 +188,17 @@ class BattleApi {
     return (data['goldLeft'] as num).toInt();
   }
 
+  /// ★デバッグ専用：コインを付与（ショップ購入の動作確認用）。付与後の残ゴールドを返す。
+  /// 呼び出しは必ず kDebugMode ガード内から。サーバーも env DEBUG_TOOLS=true 以外は 403（本番は無効）。
+  Future<int> debugGrantGold(String characterId, int amount) async {
+    final data = await _invokeDispatch('コイン付与', {
+      'action': 'debug_grant_gold',
+      'characterId': characterId,
+      'amount': amount,
+    });
+    return (data['goldLeft'] as num).toInt();
+  }
+
   /// 派遣先ダンジョン一覧（共有コンテンツ）。
   Future<List<Dungeon>> fetchDungeons() async {
     final rows = await _c.from('dungeons').select('*').order('difficulty');

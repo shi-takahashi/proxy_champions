@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../models/game_models.dart';
@@ -312,11 +313,59 @@ class _HomeScreenState extends State<HomeScreen> {
               OutlinedButton.icon(onPressed: _busy ? null : _openTournament, icon: const Icon(Icons.emoji_events), label: const Text('大会を観る 🏆')),
               const SizedBox(height: 12),
               OutlinedButton.icon(onPressed: (_busy || dispatching) ? null : _practice, icon: const Icon(Icons.sports_kabaddi), label: const Text('練習試合')),
+              // ★デバッグ機能はデバッグビルドのみ（kDebugMode はリリースで false ＝ここ自体が消える）。
+              if (kDebugMode) _debugPanel(),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// ★デバッグパネル（kDebugMode 限定・リリースビルドには存在しない）。
+  /// 今はコイン付与のみ。今後デバッグ機能を足すならここに追加していく。
+  Widget _debugPanel() {
+    return Card(
+      color: Colors.deepPurple.withValues(alpha: 0.18),
+      margin: const EdgeInsets.only(top: 24),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: const [
+              Icon(Icons.bug_report, size: 18, color: Colors.purpleAccent),
+              SizedBox(width: 6),
+              Text('デバッグ（開発ビルドのみ）', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            ]),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final n in [100, 1000, 10000])
+                  OutlinedButton(
+                    onPressed: _busy ? null : () => _grantGold(n),
+                    child: Text('コイン +$n'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _grantGold(int amount) async {
+    setState(() => _busy = true);
+    try {
+      await widget.api.debugGrantGold(_char!.id, amount);
+      await _reload();
+      _snack('コインを $amount 付与しました');
+    } catch (e) {
+      if (mounted) _snack('$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   /// 派遣中カード（留守・帰還までの残り時間）。アプリを閉じてよい旨を明示。

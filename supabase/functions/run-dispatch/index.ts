@@ -24,6 +24,8 @@
  *     { action: 'sell', characterId, kind: 'equipment'|'item', id, quantity? }
  *        → 不要な装備/アイテムを売る。売却価格の正本は catalog.sell_price（DB マスタ）。
  *          gold を加算して所持を減らす。装備中のもの・売却不可(sell_price=null)は 409。
+ *     { action: 'debug_grant_gold', characterId, amount? }   ★デバッグ専用
+ *        → コインを付与（ショップ購入の動作確認用）。env DEBUG_TOOLS=true のときだけ有効・本番は 403。
  *     { action: 'status', characterId }
  *        → 実効体力（自然回復込み）＋回復ETA、および派遣中かどうか/帰還までの残り分を返す（ホーム表示用）
  *
@@ -39,6 +41,10 @@ import type { CharacterBuild, DiveResult, DropRef, DungeonDef } from '../_engine
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+// ★デバッグ機能の有効フラグ。ローカル/開発だけ DEBUG_TOOLS=true を渡す（例: functions serve --env-file）。
+//   本番ではこの env を設定しない＝debug_* エンドポイントは常に 403（クライアントを細工しても実行不可）。
+const DEBUG_TOOLS = Deno.env.get('DEBUG_TOOLS') === 'true';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -809,6 +815,36 @@ async function handleSell(authHeader: string, body: Record<string, unknown>): Pr
   return json({ kind, id, quantity: qty, goldGained: total, goldLeft: gold + total, quantityLeft });
 }
 
+/**
+ * ★デバッグ専用：コインを付与する（ショップ購入などを試すため）。
+ * 二重ガード：① env `DEBUG_TOOLS=true`（本番は未設定＝ここで 403）／② クライアント側は kDebugMode でボタン非表示。
+ * 本番でこの env を設定しないこと（デプロイの secrets に DEBUG_TOOLS を入れない）＝機能そのものが存在しなくなる。
+ */
+async function handleDebugGrantGold(authHeader: string, body: Record<string, unknown>): Promise<Response> {
+  if (!DEBUG_TOOLS) return json({ error: 'デバッグ機能は無効（本番では使えません）' }, 403);
+
+  const characterId = body.characterId as string | undefined;
+  if (!characterId) return json({ error: 'characterId が必要' }, 400);
+  const amount = Math.floor(Number(body.amount ?? 1000));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) {
+    return json({ error: 'amount は 1〜1000000' }, 400);
+  }
+
+  const row = await readOwnedCharacter(authHeader, characterId);
+  if (!row) return json({ error: 'character not found or not owned' }, 404);
+
+  const pRes = await fetch(`${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}&select=gold`, { headers: svcHeaders() });
+  const pRows = await pRes.json();
+  const gold = Array.isArray(pRows) && pRows.length > 0 ? Number(pRows[0].gold) : 0;
+
+  const inc = await fetch(`${SUPABASE_URL}/rest/v1/players?id=eq.${row.player_id}`, {
+    method: 'PATCH', headers: svcHeaders({ Prefer: 'return=minimal' }), body: JSON.stringify({ gold: gold + amount }),
+  });
+  if (!inc.ok) return json({ error: 'コイン付与失敗', detail: await inc.json() }, 502);
+
+  return json({ granted: amount, goldLeft: gold + amount });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
@@ -836,6 +872,8 @@ Deno.serve(async (req) => {
       return await handleBuy(authHeader, body);
     case 'sell':
       return await handleSell(authHeader, body);
+    case 'debug_grant_gold':
+      return await handleDebugGrantGold(authHeader, body);
     case 'status':
       return await handleStatus(authHeader, body);
     default:
